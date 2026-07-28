@@ -1,0 +1,515 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String             @id @default(uuid())
+  email            String             @unique
+  password         String
+  name             String
+  role             Role?              @default(TECNICO)
+  department       String?
+  position         String?
+  isActive         Boolean            @default(true)
+  allowedModules   String?            @db.Text
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  attendance       Attendance[]
+  notifications    Notification[]
+  managedProjects  Project[]          @relation("ProjectManager")
+  ownedProjects    Project[]          @relation("ProjectOwner")
+  resourceBookings ResourceBooking[]
+  assignedTasks    TaskAssignment[]
+  taskUpdateTokens TaskUpdateToken[]
+  timeEntries      TimeEntry[]
+  availability     UserAvailability[]
+  workSchedules    WorkSchedule[]
+
+  @@map("users")
+}
+
+model Project {
+  id             String            @id @default(uuid())
+  code           String            @unique
+  name           String
+  description    String?           @db.Text
+  status         ProjectStatus     @default(PLANNING)
+  priority       TaskPriority      @default(MEDIUM)
+  startDate      DateTime?
+  endDate        DateTime?
+  budget         Float?
+  estimatedHours Float?
+  actualHours    Float             @default(0)
+  ownerId        String
+  managerId      String?
+  clientName     String?
+  location       String?
+  tags           String?           @db.Text
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  milestones     Milestone[]
+  resources      ProjectResource[]
+  manager        User?             @relation("ProjectManager", fields: [managerId], references: [id])
+  owner          User              @relation("ProjectOwner", fields: [ownerId], references: [id])
+  tasks          Task[]
+
+  @@index([code])
+  @@index([status])
+  @@index([ownerId])
+  @@index([managerId], map: "projects_managerId_fkey")
+  @@map("projects")
+}
+
+model Task {
+  id             String            @id @default(uuid())
+  code           String            @unique
+  title          String
+  description    String?           @db.Text
+  status         TaskStatus        @default(PENDING)
+  priority       TaskPriority      @default(MEDIUM)
+  projectId      String
+  startDate      DateTime?
+  endDate        DateTime?
+  dueDate        DateTime?
+  completedAt    DateTime?
+  estimatedHours Float?
+  actualHours    Float             @default(0)
+  progress       Int               @default(0)
+  parentTaskId   String?
+  milestoneId    String?
+  shiftTypeId    String?
+  tags           String?           @db.Text
+  notes          String?           @db.Text
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  freeBusyStatus FreeBusyStatus    @default(BUSY)
+  isRecurring    Boolean           @default(false)
+  location       String?           @db.VarChar(500)
+  timezone       String            @default("UTC") @db.VarChar(100)
+  visibility     EventVisibility   @default(PUBLIC)
+  attendees      Attendance[]
+  exceptions     EventOccurrence[]
+  recurrenceRule RecurrenceRule?
+  assignments    TaskAssignment[]
+  comments       TaskComment[]
+  updateTokens   TaskUpdateToken[]
+  milestone      Milestone?        @relation(fields: [milestoneId], references: [id])
+  parentTask     Task?             @relation("TaskDependencies", fields: [parentTaskId], references: [id])
+  subtasks       Task[]            @relation("TaskDependencies")
+  project        Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  shiftType      ShiftType?        @relation(fields: [shiftTypeId], references: [id])
+  timeEntries    TimeEntry[]
+
+  @@index([code])
+  @@index([projectId])
+  @@index([status])
+  @@index([priority])
+  @@index([dueDate])
+  @@index([isRecurring])
+  @@index([milestoneId], map: "tasks_milestoneId_fkey")
+  @@index([parentTaskId], map: "tasks_parentTaskId_fkey")
+  @@index([shiftTypeId], map: "tasks_shiftTypeId_fkey")
+  @@map("tasks")
+}
+
+model TaskAssignment {
+  id             String    @id @default(uuid())
+  taskId         String
+  userId         String
+  role           String?
+  allocatedHours Float?
+  startDate      DateTime?
+  endDate        DateTime?
+  assignedAt     DateTime  @default(now())
+  assignedBy     String?
+  task           Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user           User      @relation(fields: [userId], references: [id])
+
+  @@unique([taskId, userId])
+  @@index([userId])
+  @@index([taskId])
+  @@map("task_assignments")
+}
+
+model Milestone {
+  id          String    @id @default(uuid())
+  name        String
+  description String?   @db.Text
+  projectId   String
+  dueDate     DateTime
+  completedAt DateTime?
+  order       Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks       Task[]
+
+  @@index([projectId])
+  @@index([dueDate])
+  @@map("milestones")
+}
+
+model Resource {
+  id               String             @id @default(uuid())
+  name             String
+  type             ResourceType
+  description      String?            @db.Text
+  available        Boolean            @default(true)
+  capacity         Int                @default(1)
+  location         String?
+  specifications   String?            @db.Text
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  projectResources ProjectResource[]
+  bookings         ResourceBooking[]
+  schedules        ResourceSchedule[]
+
+  @@index([type])
+  @@index([available])
+  @@map("resources")
+}
+
+model ProjectResource {
+  id             String   @id @default(uuid())
+  projectId      String
+  resourceId     String
+  allocatedHours Float?
+  assignedAt     DateTime @default(now())
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  resource       Resource @relation(fields: [resourceId], references: [id])
+
+  @@unique([projectId, resourceId])
+  @@index([projectId])
+  @@index([resourceId])
+  @@map("project_resources")
+}
+
+model WorkSchedule {
+  id            String     @id @default(uuid())
+  userId        String
+  dayOfWeek     Int
+  startTime     String
+  endTime       String
+  breakDuration Int        @default(60)
+  validFrom     DateTime?
+  validUntil    DateTime?
+  isActive      Boolean    @default(true)
+  shiftTypeId   String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  user          User       @relation(fields: [userId], references: [id])
+  shiftType     ShiftType? @relation("ShiftTypeSchedules", fields: [shiftTypeId], references: [id])
+
+  @@index([userId])
+  @@index([dayOfWeek])
+  @@index([shiftTypeId])
+  @@map("work_schedules")
+}
+
+model ShiftType {
+  id            String         @id @default(uuid())
+  code          String         @unique
+  name          String
+  color         String         @db.VarChar(7) // Hex color: #RRGGBB
+  description   String?        @db.Text
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  tasks         Task[]         @relation()
+  workSchedules WorkSchedule[] @relation("ShiftTypeSchedules")
+
+  @@index([code])
+  @@map("shift_types")
+}
+
+model Holiday {
+  id          String   @id @default(uuid())
+  name        String
+  date        DateTime @db.Date
+  description String?  @db.Text
+  isNational  Boolean  @default(true)
+  region      String?
+  recurring   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([date])
+  @@map("holidays")
+}
+
+model ResourceSchedule {
+  id            String   @id @default(uuid())
+  resourceId    String
+  startDateTime DateTime
+  endDateTime   DateTime
+  purpose       String?  @db.Text
+  bookedBy      String?
+  taskId        String?
+  confirmed     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  resource      Resource @relation(fields: [resourceId], references: [id])
+
+  @@index([resourceId])
+  @@index([startDateTime])
+  @@index([endDateTime])
+  @@map("resource_schedules")
+}
+
+model TimeEntry {
+  id          String    @id @default(uuid())
+  userId      String
+  taskId      String
+  startTime   DateTime
+  endTime     DateTime?
+  duration    Float?
+  description String?   @db.Text
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  task        Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([taskId])
+  @@index([startTime])
+  @@map("time_entries")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String           @db.Text
+  metadata  String?          @db.Text
+  read      Boolean          @default(false)
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([read])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+model TaskComment {
+  id        String   @id @default(uuid())
+  taskId    String
+  userId    String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@map("task_comments")
+}
+
+model RecurrenceRule {
+  id         String              @id @default(uuid())
+  taskId     String              @unique
+  rrule      String              @db.Text
+  frequency  RecurrenceFrequency
+  interval   Int                 @default(1)
+  count      Int?
+  until      DateTime?
+  byWeekDay  String?             @db.Text
+  byMonthDay String?             @db.Text
+  byMonth    String?             @db.Text
+  exdates    String?             @db.Text
+  timezone   String              @default("UTC") @db.VarChar(100)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  task       Task                @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@map("recurrence_rules")
+}
+
+model EventOccurrence {
+  id                String    @id @default(uuid())
+  taskId            String
+  originalStartDate DateTime
+  originalEndDate   DateTime?
+  title             String?   @db.VarChar(255)
+  description       String?   @db.Text
+  startDate         DateTime?
+  dueDate           DateTime?
+  location          String?   @db.VarChar(500)
+  isCancelled       Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  task              Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, originalStartDate])
+  @@index([taskId])
+  @@index([originalStartDate])
+  @@map("event_occurrences")
+}
+
+model Attendance {
+  id          String         @id @default(uuid())
+  taskId      String
+  userId      String
+  status      AttendeeStatus @default(PENDING)
+  isOrganizer Boolean        @default(false)
+  isRequired  Boolean        @default(true)
+  comment     String?        @db.Text
+  respondedAt DateTime?
+  notified    Boolean        @default(false)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  task        Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user        User           @relation(fields: [userId], references: [id])
+
+  @@unique([taskId, userId])
+  @@index([taskId])
+  @@index([userId])
+  @@index([status])
+  @@map("attendance")
+}
+
+model UserAvailability {
+  id          String         @id @default(uuid())
+  userId      String
+  startTime   DateTime
+  endTime     DateTime
+  status      FreeBusyStatus
+  taskId      String?
+  description String?        @db.VarChar(500)
+  isManual    Boolean        @default(false)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  user        User           @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([startTime])
+  @@index([endTime])
+  @@index([status])
+  @@map("user_availability")
+}
+
+model ResourceBooking {
+  id          String   @id @default(uuid())
+  resourceId  String
+  taskId      String
+  userId      String
+  startTime   DateTime
+  endTime     DateTime
+  purpose     String?  @db.VarChar(500)
+  isConfirmed Boolean  @default(false)
+  isCancelled Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  resource    Resource @relation(fields: [resourceId], references: [id])
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([resourceId])
+  @@index([taskId])
+  @@index([userId])
+  @@index([startTime])
+  @@index([endTime])
+  @@map("resource_bookings")
+}
+
+model TaskUpdateToken {
+  id        String    @id @default(uuid())
+  taskId    String
+  userId    String
+  token     String    @unique @db.VarChar(64)
+  expiresAt DateTime
+  used      Boolean   @default(false)
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+  @@map("task_update_tokens")
+}
+
+enum Role {
+  SUPER_ADMIN
+  GERENTE
+  JEFE
+  TECNICO
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  BLOCKED
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum ResourceType {
+  PERSON
+  EQUIPMENT
+  ROOM
+  VEHICLE
+}
+
+enum NotificationType {
+  TASK_ASSIGNED
+  TASK_DUE_SOON
+  TASK_OVERDUE
+  MILESTONE_APPROACHING
+  CONFLICT_DETECTED
+  SCHEDULE_CHANGE
+  EVENT_INVITATION
+  EVENT_UPDATE
+  EVENT_CANCELLED
+}
+
+enum RecurrenceFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+enum AttendeeStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  TENTATIVE
+}
+
+enum EventVisibility {
+  PUBLIC
+  PRIVATE
+  CONFIDENTIAL
+}
+
+enum FreeBusyStatus {
+  FREE
+  BUSY
+  TENTATIVE
+  OUT_OF_OFFICE
+}

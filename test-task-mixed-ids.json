@@ -1,0 +1,12 @@
+{
+  "code": "TEST-FIX-005",
+  "title": "Tarea con múltiples tipos de ID",
+  "description": "Probando con UUIDs y IDs tipo admin001",
+  "projectId": "7066d00b-e1f1-423d-91bc-faa5d20b3b22",
+  "status": "PENDING",
+  "priority": "HIGH",
+  "startDate": "2025-12-22T08:00:00.000Z",
+  "endDate": "2025-12-28T17:00:00.000Z",
+  "estimatedHours": 20,
+  "participantIds": ["admin001", "721fde91-7b07-434b-9d35-da30019cc0bd", "viewer001"]
+}

@@ -1,0 +1,29 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  GERENTE
+  JEFE
+  TECNICO
+}
+
+model User {
+  id               String   @id @default(uuid())
+  email            String   @unique
+  password         String
+  name             String?
+  role             UserRole @default(TECNICO)
+  isActive         Boolean  @default(true)
+  allowedModules   String?  @db.Text  // JSON array: ["inventory", "projects", "reports"]
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("users")
+}
