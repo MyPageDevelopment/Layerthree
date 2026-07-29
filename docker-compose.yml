@@ -1,0 +1,60 @@
+services:
+  # Base de Datos MySQL (Contenedor Database)
+  database:
+    image: mysql:8.0
+    container_name: bodega-mysql-monolith
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-R8mX4vP9qL2zW7rN5tJ1yC3uK6bQ8zP}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-intranet_layerthree_db}
+      MYSQL_USER: ${MYSQL_USER:-l3_app_user_prod}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-L3AppUserProdSecure2026Pass99xZ}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Backend (NestJS Monolito Modular) - Conexión por Usuario de Aplicación (Menor Privilegio)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bodega-backend-monolith
+    restart: always
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: ${PORT:-3001}
+      DATABASE_URL: mysql://${MYSQL_USER:-l3_app_user_prod}:${MYSQL_PASSWORD:-L3AppUserProdSecure2026Pass99xZ}@database:3306/${MYSQL_DATABASE:-intranet_layerthree_db}
+      JWT_SECRET: ${JWT_SECRET:-L3k9M2vX8qR5zW7n4TJ1yC3uK6bQ8zP2mL5xW8rN4tJ1yC3uK6bQ9zR4vM2wL7pK}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-24h}
+    depends_on:
+      database:
+        condition: service_healthy
+
+  # Frontend (Next.js App Router)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: bodega-frontend-monolith
+    restart: always
+    ports:
+      - "80:3000"
+      - "3000:3000"
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 3000
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001/api}
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:
+    driver: local

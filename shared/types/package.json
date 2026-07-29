@@ -1,9 +1,0 @@
-{
-  "name": "@intranet/shared-types",
-  "version": "1.0.0",
-  "description": "Tipos compartidos entre microservicios",
-  "main": "index.ts",
-  "types": "index.ts",
-  "author": "Layerthree",
-  "license": "MIT"
-}
