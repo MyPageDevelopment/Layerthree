@@ -18,4 +18,8 @@ export class CreateMovementDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsString()
+  vanId?: string;
 }

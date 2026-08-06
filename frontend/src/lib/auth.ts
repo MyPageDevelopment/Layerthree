@@ -72,6 +72,11 @@ export const isSuperAdmin = (): boolean => {
   return user?.role === 'SUPER_ADMIN';
 };
 
+export const canManageInventory = (): boolean => {
+  const user = getUser();
+  return user?.role === 'SUPER_ADMIN' || user?.role === 'GERENTE' || user?.role === 'BODEGUERO';
+};
+
 export const hasModuleAccess = (module: string): boolean => {
   const user = getUser();
   if (!user) return false;

@@ -27,6 +27,11 @@ export interface Product {
   stock: number
   minStock: number
   unitPrice: number
+  unit?: string
+  unitCost?: number
+  totalCost?: number
+  listPrice?: number
+  supplierCode?: string
   createdAt: string
   updatedAt: string
 }

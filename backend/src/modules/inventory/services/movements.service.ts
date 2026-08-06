@@ -24,10 +24,60 @@ export class MovementsService {
       }
     }
 
+    let updatedNotes = createMovementDto.notes || '';
+    if (createMovementDto.vanId) {
+      const van = await this.prisma.van.findUnique({
+        where: { id: createMovementDto.vanId },
+      });
+
+      if (van) {
+        const actionLabel = createMovementDto.type === 'EXIT' ? 'Asignado a' : 'Devuelto desde';
+        updatedNotes = `${updatedNotes} [${actionLabel} Vehículo: ${van.plate} - ${van.name}]`.trim();
+
+        const existingVanItem = await this.prisma.vanItem.findFirst({
+          where: {
+            vanId: van.id,
+            OR: [{ productId: product.id }, { name: product.name }],
+          },
+        });
+
+        if (createMovementDto.type === 'EXIT') {
+          if (existingVanItem) {
+            await this.prisma.vanItem.update({
+              where: { id: existingVanItem.id },
+              data: { quantity: { increment: createMovementDto.quantity } },
+            });
+          } else {
+            await this.prisma.vanItem.create({
+              data: {
+                vanId: van.id,
+                productId: product.id,
+                name: product.name,
+                category: product.category,
+                quantity: createMovementDto.quantity,
+                minQuantity: product.minStock || 1,
+              },
+            });
+          }
+        } else if (createMovementDto.type === 'ENTRY') {
+          if (existingVanItem) {
+            const newQty = Math.max(0, existingVanItem.quantity - createMovementDto.quantity);
+            await this.prisma.vanItem.update({
+              where: { id: existingVanItem.id },
+              data: { quantity: newQty },
+            });
+          }
+        }
+      }
+    }
+
+    const { vanId, ...movementData } = createMovementDto;
+
     const [movement] = await this.prisma.$transaction([
       this.prisma.movement.create({
         data: {
-          ...createMovementDto,
+          ...movementData,
+          notes: updatedNotes,
           userId,
         },
         include: {

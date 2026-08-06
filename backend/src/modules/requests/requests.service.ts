@@ -1,15 +1,22 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, OnModuleInit, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
+import { ExcelParserService } from './excel-parser.service';
 
 export interface CreateRequestItemDto {
-  productId: string;
+  productId?: string | null;
+  sku?: string | null;
+  productName?: string;
   quantity: number;
+  unitMeasure?: string;
 }
 
 export interface CreateRequestDto {
   projectId?: string;
   projectName?: string;
   notes?: string;
+  attachmentUrl?: string;
+  attachmentName?: string;
   items: CreateRequestItemDto[];
 }
 
@@ -23,17 +30,81 @@ export interface DispatchRequestDto {
   recipientName: string;
   photoUrl?: string;
   notes?: string;
+  vanId?: string;
   items: DispatchItemDto[];
 }
 
+export interface SendSupplierQuoteDto {
+  supplierEmail: string;
+  supplierName?: string;
+  requestCode?: string;
+  items: { sku?: string; productName: string; quantity: number; unitMeasure?: string; notes?: string }[];
+  customNotes?: string;
+}
+
 @Injectable()
-export class RequestsService {
-  constructor(private prisma: PrismaService) {}
+export class RequestsService implements OnModuleInit {
+  private logger = new Logger(RequestsService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private mailService: MailService,
+    private excelParserService: ExcelParserService,
+  ) {}
+
+  onModuleInit() {
+    // Run cleanup on startup and schedule every 24h
+    this.cleanupOldFilesAndPhotos();
+    setInterval(() => {
+      this.cleanupOldFilesAndPhotos();
+    }, 24 * 60 * 60 * 1000);
+  }
+
+  /**
+   * Limpieza automática de fotos y archivos adjuntos con más de 30 días (1 mes) de antigüedad.
+   */
+  async cleanupOldFilesAndPhotos() {
+    try {
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const result = await this.prisma.materialRequest.updateMany({
+        where: {
+          updatedAt: { lt: thirtyDaysAgo },
+          OR: [
+            { photoUrl: { not: null } },
+            { attachmentUrl: { not: null } },
+          ],
+        },
+        data: {
+          photoUrl: null,
+          attachmentUrl: null,
+          attachmentName: null,
+        },
+      });
+      if (result.count > 0) {
+        this.logger.log(`🧹 Política de Retención (30 días): Se han purgado fotos y adjuntos de ${result.count} solicitudes.`);
+      }
+    } catch (error) {
+      this.logger.error('Error durante la purga de fotos y adjuntos antiguos:', error);
+    }
+  }
+
+  async parseExcelFile(buffer: Buffer, fileName: string) {
+    return this.excelParserService.parseExcelBuffer(buffer, fileName);
+  }
 
   async create(requestedById: string, dto: CreateRequestDto) {
-    if (!dto.items || dto.items.length === 0) {
-      throw new BadRequestException('Debes incluir al menos un producto en la solicitud');
+    const hasItems = dto.items && dto.items.length > 0;
+    if (!hasItems && !dto.attachmentUrl && !dto.notes) {
+      throw new BadRequestException('Debes incluir productos en la lista o adjuntar una foto/planilla');
     }
+
+    const itemsInput = hasItems ? dto.items : [];
+    const productIds = itemsInput.map((i) => i.productId).filter((id): id is string => Boolean(id));
+    const dbProducts = await this.prisma.product.findMany({
+      where: { id: { in: productIds } },
+    });
+
+    const productMap = new Map(dbProducts.map((p) => [p.id, p]));
 
     const count = await this.prisma.materialRequest.count();
     const code = `REQ-${new Date().getFullYear()}-${String(count + 1).padStart(3, '0')}`;
@@ -45,63 +116,84 @@ export class RequestsService {
         projectName: dto.projectName || 'Proyecto General',
         requestedById,
         notes: dto.notes || '',
+        attachmentUrl: dto.attachmentUrl || null,
+        attachmentName: dto.attachmentName || null,
         status: 'PENDING',
         items: {
-          create: dto.items.map((i) => ({
-            productId: i.productId,
-            requestedQuantity: i.quantity,
-            deliveredQuantity: 0,
-            isChecked: false,
-          })),
+          create: itemsInput.map((i) => {
+            const prod = i.productId ? productMap.get(i.productId) : null;
+            const name = i.productName || prod?.name || 'Producto';
+            const sku = i.sku || prod?.sku || 'N/A';
+            const isUtp = name.toUpperCase().includes('UTP') || sku.toUpperCase().includes('UTP');
+            const unitMeasure = isUtp ? 'MTS' : (i.unitMeasure || prod?.unit || 'UN');
+
+            return {
+              productId: i.productId || null,
+              productName: name,
+              sku,
+              requestedQuantity: i.quantity,
+              deliveredQuantity: 0,
+              unitMeasure,
+              isChecked: false,
+            };
+          }),
         },
       },
       include: {
         items: {
           include: { product: true },
         },
-        requestedBy: true,
+        requestedBy: { select: { id: true, name: true, email: true, role: true } },
+        assignedTo: { select: { id: true, name: true, email: true, role: true } },
+        van: true,
       },
     });
 
-    // Notify all Bodegueros and SuperAdmins
+    // Notify all Bodegueros in App and via Email
     const targetUsers = await this.prisma.user.findMany({
       where: {
-        role: { in: ['BODEGUERO', 'SUPER_ADMIN'] },
+        role: 'BODEGUERO',
         isActive: true,
       },
     });
+
+    const itemCountText = hasItems ? `${itemsInput.length} ítems` : 'foto/planilla adjunta (sin lista)';
 
     for (const user of targetUsers) {
       await this.prisma.appNotification.create({
         data: {
           userId: user.id,
           title: `📦 Nueva Solicitud de Materiales (${code})`,
-          message: `El usuario ${request.requestedBy.name || request.requestedBy.email} ha solicitado ${dto.items.length} ítems para el proyecto "${request.projectName}".`,
+          message: `El usuario ${request.requestedBy.name || request.requestedBy.email} ha enviado una solicitud (${itemCountText}) para el proyecto "${request.projectName}".`,
           link: `/solicitudes?highlight=${request.id}`,
         },
       });
+
+      // Do NOT send notification email to the person creating the request
+      if (user.email && user.id !== requestedById) {
+        this.mailService
+          .sendMaterialRequestEmail(
+            user.email,
+            code,
+            request.requestedBy.name || request.requestedBy.email,
+            request.projectName || 'Proyecto General',
+            itemsInput.length,
+          )
+          .catch((err) => this.logger.error(`Error enviando correo de solicitud a ${user.email}:`, err));
+      }
     }
 
     return request;
   }
 
   async findAll(userId: string, userRole: string) {
-    if (userRole === 'SUPER_ADMIN' || userRole === 'BODEGUERO' || userRole === 'GERENTE') {
-      return this.prisma.materialRequest.findMany({
-        orderBy: { createdAt: 'desc' },
-        include: {
-          items: { include: { product: true } },
-          requestedBy: true,
-        },
-      });
-    }
-
     return this.prisma.materialRequest.findMany({
-      where: { requestedById: userId },
       orderBy: { createdAt: 'desc' },
       include: {
         items: { include: { product: true } },
-        requestedBy: true,
+        requestedBy: { select: { id: true, name: true, email: true, role: true } },
+        assignedTo: { select: { id: true, name: true, email: true, role: true } },
+        van: true,
       },
     });
   }
@@ -111,7 +203,9 @@ export class RequestsService {
       where: { id },
       include: {
         items: { include: { product: true } },
-        requestedBy: true,
+        requestedBy: { select: { id: true, name: true, email: true, role: true } },
+        assignedTo: { select: { id: true, name: true, email: true, role: true } },
+        van: true,
       },
     });
 
@@ -137,7 +231,12 @@ export class RequestsService {
       throw new BadRequestException('Debes adjuntar la fotografía de respaldo de la entrega de materiales');
     }
 
-    // Process items & update stock
+    let vanObj: any = null;
+    if (dto.vanId) {
+      vanObj = await this.prisma.van.findUnique({ where: { id: dto.vanId } });
+    }
+
+    // Process items, update stock & assign to Van if vanId selected
     for (const itemDto of dto.items) {
       const dbItem = request.items.find((i) => i.id === itemDto.itemId);
       if (!dbItem) continue;
@@ -160,7 +259,7 @@ export class RequestsService {
             projectId: request.projectId || null,
             type: 'EXIT',
             quantity: deliveredQty,
-            notes: `Despacho de Solicitud ${request.code} entregado a: ${dto.recipientName}`,
+            notes: `Despacho de Solicitud ${request.code} entregado a: ${dto.recipientName}${vanObj ? ` (Camioneta: ${vanObj.plate} - ${vanObj.name})` : ''}`,
             userId: bodegueroUserId,
           },
         });
@@ -172,6 +271,39 @@ export class RequestsService {
             stock: { decrement: deliveredQty },
           },
         });
+
+        // Automatically update Van Stock if vanId selected
+        if (vanObj && dbItem.product) {
+          const existingVanItem = await this.prisma.vanItem.findFirst({
+            where: {
+              vanId: vanObj.id,
+              OR: [{ productId: dbItem.productId }, { name: dbItem.product.name }],
+            },
+          });
+
+          if (existingVanItem) {
+            await this.prisma.vanItem.update({
+              where: { id: existingVanItem.id },
+              data: {
+                quantity: { increment: deliveredQty },
+              },
+            });
+          } else {
+            await this.prisma.vanItem.create({
+              data: {
+                vanId: vanObj.id,
+                productId: dbItem.productId,
+                name: dbItem.product.name,
+                sku: dbItem.product.sku,
+                category: dbItem.product.category,
+                type: 'MATERIAL',
+                quantity: deliveredQty,
+                minQuantity: 1,
+                assignedTo: vanObj.driver || dto.recipientName,
+              },
+            });
+          }
+        }
       }
     }
 
@@ -182,21 +314,20 @@ export class RequestsService {
         assignedToId: bodegueroUserId,
         recipientName: dto.recipientName,
         photoUrl: dto.photoUrl,
+        vanId: dto.vanId || null,
         notes: dto.notes ? `${request.notes || ''}\n[Despacho]: ${dto.notes}` : request.notes,
       },
       include: {
         items: { include: { product: true } },
         requestedBy: true,
+        van: true,
       },
     });
 
-    // Notify project requester & Gerentes
+    // Notify project requester via App & Email
     const notificationUsers = await this.prisma.user.findMany({
       where: {
-        OR: [
-          { id: request.requestedById },
-          { role: 'GERENTE' },
-        ],
+        id: request.requestedById,
         isActive: true,
       },
     });
@@ -206,12 +337,58 @@ export class RequestsService {
         data: {
           userId: u.id,
           title: `✅ Solicitud Entregada (${request.code})`,
-          message: `Los materiales del proyecto "${request.projectName}" fueron despachados y entregados a: ${dto.recipientName}. (Foto de respaldo adjunta).`,
+          message: `Los materiales del proyecto "${request.projectName}" fueron despachados y entregados a: ${dto.recipientName}.${vanObj ? ` (Asignados a Camioneta ${vanObj.plate})` : ''}`,
           link: `/solicitudes?highlight=${request.id}`,
         },
       });
+
+      // Do NOT send notification email to the Bodeguero performing the dispatch
+      if (u.email && u.id !== bodegueroUserId) {
+        this.mailService
+          .sendMaterialDispatchedEmail(
+            u.email,
+            request.code,
+            dto.recipientName,
+            vanObj ? `${vanObj.plate} (${vanObj.name})` : undefined,
+          )
+          .catch((err) => this.logger.error(`Error enviando correo de despacho a ${u.email}:`, err));
+      }
     }
 
     return updatedRequest;
+  }
+
+  async sendSupplierQuote(user: any, dto: SendSupplierQuoteDto) {
+    if (!dto.supplierEmail || !dto.supplierEmail.trim()) {
+      throw new BadRequestException('Debes proporcionar el correo electrónico del proveedor');
+    }
+
+    if (!dto.items || dto.items.length === 0) {
+      throw new BadRequestException('Debes incluir al menos un producto para solicitar cotización');
+    }
+
+    const senderName = user ? `${user.name || user.email}` : 'Bodega Layerthree';
+
+    const success = await this.mailService.sendSupplierQuoteEmail(
+      dto.supplierEmail,
+      dto.supplierName || 'Proveedor',
+      dto.requestCode || 'SOLICITUD-COTIZACION',
+      dto.items.map((i) => ({
+        sku: i.sku || '',
+        productName: i.productName,
+        quantity: i.quantity,
+        unitMeasure: i.unitMeasure || 'UN',
+        notes: i.notes,
+      })),
+      senderName,
+      dto.customNotes,
+    );
+
+    return {
+      success,
+      message: success
+        ? 'Correo de cotización enviado exitosamente al proveedor'
+        : 'Formato generado correctamente (modo simulación SMTP)',
+    };
   }
 }

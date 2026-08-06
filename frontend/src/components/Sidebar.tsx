@@ -28,6 +28,12 @@ export default function Sidebar() {
       show: true,
     },
     {
+      name: 'Cotizaciones',
+      href: '/cotizaciones',
+      icon: '📝',
+      show: true,
+    },
+    {
       name: 'Calendario',
       href: '/calendario',
       icon: '📅',
@@ -37,6 +43,12 @@ export default function Sidebar() {
       name: 'Actividades',
       href: '/actividades',
       icon: '📋',
+      show: true,
+    },
+    {
+      name: 'Stock Camionetas',
+      href: '/camionetas',
+      icon: '🛻',
       show: true,
     },
     {

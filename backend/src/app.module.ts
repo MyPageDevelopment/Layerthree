@@ -9,6 +9,9 @@ import { CalendarModule } from './modules/calendar/calendar.module';
 import { ActivitiesModule } from './modules/activities/activities.module';
 import { RequestsModule } from './modules/requests/requests.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { QuotationsModule } from './modules/quotations/quotations.module';
+import { MailModule } from './modules/mail/mail.module';
+import { VansModule } from './modules/vans/vans.module';
 import { LoggerMiddleware } from './common/middleware/logger.middleware';
 import { SecurityHeadersMiddleware } from './common/middleware/security-headers.middleware';
 
@@ -18,12 +21,15 @@ import { SecurityHeadersMiddleware } from './common/middleware/security-headers.
       isGlobal: true,
     }),
     PrismaModule,
+    MailModule,
     AuthModule,
     InventoryModule,
     CalendarModule,
     ActivitiesModule,
     RequestsModule,
     NotificationsModule,
+    QuotationsModule,
+    VansModule,
   ],
   providers: [
     {

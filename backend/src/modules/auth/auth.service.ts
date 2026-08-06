@@ -3,12 +3,14 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from './users/users.service';
 import { LoginDto } from './dto/login.dto';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class AuthService {
   constructor(
     private usersService: UsersService,
     private jwtService: JwtService,
+    private mailService: MailService,
   ) {}
 
   async validateUser(email: string, password: string): Promise<any> {
@@ -89,11 +91,13 @@ export class AuthService {
 
     await this.usersService.updateResetToken(user.id, resetToken, resetTokenExpires);
 
-    console.log(`✉️ [EMAIL SIMULATOR] Para: ${email} | Código de Recuperación: ${resetToken}`);
+    // Send email asynchronously in background so client gets instant HTTP response
+    this.mailService.sendPasswordResetEmail(email, resetToken).catch((err) => {
+      console.error(`Error enviando correo de contraseña a ${email}:`, err);
+    });
 
     return {
-      message: 'Si el correo está registrado, recibirás las instrucciones de recuperación.',
-      devToken: resetToken, // Exposed in response for easy testing
+      message: 'Si el correo está registrado, recibirás un correo con el código de verificación.',
     };
   }
 

@@ -25,7 +25,9 @@ export default function UsuariosPage() {
   const [formName, setFormName] = useState('')
   const [formEmail, setFormEmail] = useState('')
   const [formPassword, setFormPassword] = useState('')
+  const [formConfirmPassword, setFormConfirmPassword] = useState('')
   const [showFormPassword, setShowFormPassword] = useState(false)
+  const [showFormConfirmPassword, setShowFormConfirmPassword] = useState(false)
   const [formRole, setFormRole] = useState('GERENTE')
   const [formModules, setFormModules] = useState<string[]>(['inventory', 'projects', 'reports'])
   const [formIsActive, setFormIsActive] = useState(true)
@@ -56,7 +58,9 @@ export default function UsuariosPage() {
     setFormName('')
     setFormEmail('')
     setFormPassword('')
+    setFormConfirmPassword('')
     setShowFormPassword(false)
+    setShowFormConfirmPassword(false)
     setFormRole('GERENTE')
     setFormModules(['inventory', 'projects', 'reports'])
     setFormIsActive(true)
@@ -68,7 +72,9 @@ export default function UsuariosPage() {
     setFormName(user.name || '')
     setFormEmail(user.email)
     setFormPassword('')
+    setFormConfirmPassword('')
     setShowFormPassword(false)
+    setShowFormConfirmPassword(false)
     setFormRole(user.role)
     setFormModules(Array.isArray(user.allowedModules) ? user.allowedModules : [])
     setFormIsActive(user.isActive)
@@ -84,6 +90,13 @@ export default function UsuariosPage() {
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
+      if (formPassword || !editingUser) {
+        if (formPassword !== formConfirmPassword) {
+          alert('Las contraseñas no coinciden. Por favor confirma la contraseña.')
+          return
+        }
+      }
+
       const payload: any = {
         name: formName,
         email: formEmail,
@@ -287,7 +300,7 @@ export default function UsuariosPage() {
       {/* Modal Crear / Editar */}
       {showModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
               <h3 className="text-lg font-bold">
                 {editingUser ? 'Editar Usuario' : 'Nuevo Usuario'}
@@ -345,6 +358,30 @@ export default function UsuariosPage() {
                     title={showFormPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                   >
                     {showFormPassword ? '🙈' : '👁️'}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold mb-1">
+                  {editingUser ? 'Confirmar Nueva Contraseña' : 'Confirmar Contraseña'}
+                </label>
+                <div className="relative">
+                  <input
+                    type={showFormConfirmPassword ? 'text' : 'password'}
+                    required={!editingUser || !!formPassword}
+                    value={formConfirmPassword}
+                    onChange={(e) => setFormConfirmPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full px-3 py-2 pr-9 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowFormConfirmPassword(!showFormConfirmPassword)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white transition text-xs"
+                    title={showFormConfirmPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                  >
+                    {showFormConfirmPassword ? '🙈' : '👁️'}
                   </button>
                 </div>
               </div>

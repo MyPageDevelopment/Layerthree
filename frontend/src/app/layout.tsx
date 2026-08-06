@@ -6,7 +6,7 @@ import { ThemeProvider } from '@/context/ThemeContext';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Sistema Intranet Layerthree',
+  title: 'Plataforma Layerthree',
   description: 'Plataforma unificada para gestión de inventarios, proyectos y actividades.',
 };
 

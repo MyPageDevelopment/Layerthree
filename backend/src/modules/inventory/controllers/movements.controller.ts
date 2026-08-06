@@ -21,13 +21,13 @@ export class MovementsController {
   constructor(private readonly movementsService: MovementsService) {}
 
   @Post()
-  @Roles('SUPER_ADMIN', 'GERENTE')
+  @Roles('SUPER_ADMIN', 'GERENTE', 'BODEGUERO')
   create(@Body() createMovementDto: CreateMovementDto, @Request() req) {
     return this.movementsService.create(createMovementDto, req.user.id || req.user.userId);
   }
 
   @Post('bulk')
-  @Roles('SUPER_ADMIN', 'GERENTE')
+  @Roles('SUPER_ADMIN', 'GERENTE', 'BODEGUERO')
   createBulk(@Body() createBulkMovementDto: CreateBulkMovementDto, @Request() req) {
     return this.movementsService.createBulk(createBulkMovementDto, req.user.id || req.user.userId);
   }

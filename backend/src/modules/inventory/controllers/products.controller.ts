@@ -30,13 +30,22 @@ export class ProductsController {
   ) {}
 
   @Post()
-  @Roles('SUPER_ADMIN', 'GERENTE')
+  @Roles('SUPER_ADMIN', 'GERENTE', 'BODEGUERO')
   async create(
     @Body() createProductDto: CreateProductDto,
     @CurrentUser() user: any,
   ): Promise<ProductResponseDto> {
     const product = await this.productsService.create(createProductDto, user);
     return plainToInstance(ProductResponseDto, product, { excludeExtraneousValues: true });
+  }
+
+  @Post('import-csv')
+  @Roles('SUPER_ADMIN', 'GERENTE', 'BODEGUERO')
+  async importCsv(
+    @Body('csvText') csvText: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.productsService.importCsvData(csvText, user);
   }
 
   @Get()
@@ -51,7 +60,7 @@ export class ProductsController {
   }
 
   @Get('audit/all')
-  @Roles('SUPER_ADMIN', 'GERENTE')
+  @Roles('SUPER_ADMIN', 'GERENTE', 'BODEGUERO')
   async getAllAudits(
     @Query('userId') userId?: string,
     @Query('action') action?: string,
@@ -66,7 +75,7 @@ export class ProductsController {
   }
 
   @Get('audit/stats')
-  @Roles('SUPER_ADMIN', 'GERENTE')
+  @Roles('SUPER_ADMIN', 'GERENTE', 'BODEGUERO')
   async getAuditStats() {
     return this.auditService.getAuditStats();
   }
@@ -78,14 +87,14 @@ export class ProductsController {
   }
 
   @Get(':id/audit')
-  @Roles('SUPER_ADMIN', 'GERENTE')
+  @Roles('SUPER_ADMIN', 'GERENTE', 'BODEGUERO')
   async getProductAudit(@Param('id') id: string): Promise<ProductAuditResponseDto[]> {
     const audits = await this.auditService.getProductAuditHistory(id);
     return plainToInstance(ProductAuditResponseDto, audits, { excludeExtraneousValues: true });
   }
 
   @Patch(':id')
-  @Roles('SUPER_ADMIN', 'GERENTE')
+  @Roles('SUPER_ADMIN', 'GERENTE', 'BODEGUERO')
   async update(
     @Param('id') id: string,
     @Body() updateProductDto: UpdateProductDto,
@@ -96,7 +105,7 @@ export class ProductsController {
   }
 
   @Delete(':id')
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'GERENTE', 'BODEGUERO')
   remove(@Param('id') id: string, @CurrentUser() user: any) {
     return this.productsService.remove(id, user);
   }

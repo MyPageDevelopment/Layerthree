@@ -131,6 +131,8 @@ model User {
   ownedProjects          Project[]          @relation("ProjectOwner")
   materialRequestsMade   MaterialRequest[]  @relation("RequestsMade")
   materialRequestsAssigned MaterialRequest[] @relation("RequestsAssigned")
+  quotationRequestsMade    QuotationRequest[] @relation("QuotationRequestsMade")
+  quotationRequestsAssigned QuotationRequest[] @relation("QuotationRequestsAssigned")
   resourceBookings       ResourceBooking[]
   assignedTasks          TaskAssignment[]
   taskUpdateTokens       TaskUpdateToken[]
@@ -151,13 +153,23 @@ model Product {
   stock       Int             @default(0)
   minStock    Int             @default(0)
   unitPrice   Float           @default(0)
+  unit        String          @default("UN")
+  unitCost    Float           @default(0)
+  totalCost   Float           @default(0)
+  listPrice   Float           @default(0)
+  supplierCode String?
+  isDeleted   Boolean         @default(false)
+  deletedAt   DateTime?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
   movements   Movement[]
   requestItems MaterialRequestItem[]
+  quotationItems QuotationItem[]
+  vanItems    VanItem[]
 
   @@index([sku])
   @@index([category])
+  @@index([isDeleted])
   @@map("products")
 }
 
@@ -623,7 +635,11 @@ model MaterialRequest {
   status          MaterialRequestStatus @default(PENDING)
   recipientName   String?               @db.VarChar(255)
   photoUrl        String?               @db.LongText
+  attachmentUrl   String?               @db.LongText
+  attachmentName  String?               @db.VarChar(255)
   notes           String?               @db.Text
+  vanId           String?
+  van             Van?                  @relation(fields: [vanId], references: [id], onDelete: SetNull)
   items           MaterialRequestItem[]
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
@@ -635,10 +651,13 @@ model MaterialRequestItem {
   id                String          @id @default(uuid())
   materialRequestId String
   materialRequest   MaterialRequest @relation(fields: [materialRequestId], references: [id], onDelete: Cascade)
-  productId         String
-  product           Product         @relation(fields: [productId], references: [id])
+  productId         String?
+  product           Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productName       String?         @db.VarChar(255)
+  sku               String?         @db.VarChar(100)
   requestedQuantity Int
   deliveredQuantity Int             @default(0)
+  unitMeasure       String?         @default("UN")
   isChecked         Boolean         @default(false)
   
   @@map("material_request_items")
@@ -656,3 +675,90 @@ model AppNotification {
 
   @@map("app_notifications")
 }
+
+enum QuotationStatus {
+  PENDING_QUOTE
+  QUOTED
+  APPROVED
+  REJECTED
+  PURCHASED
+}
+
+model QuotationRequest {
+  id                 String          @id @default(uuid())
+  code               String          @unique
+  projectId          String?
+  projectName        String?
+  requestedById      String
+  requestedBy        User            @relation("QuotationRequestsMade", fields: [requestedById], references: [id])
+  assignedToId       String?
+  assignedTo         User?           @relation("QuotationRequestsAssigned", fields: [assignedToId], references: [id])
+  status             QuotationStatus @default(PENDING_QUOTE)
+  title              String
+  notes              String?         @db.Text
+  attachmentUrl          String?         @db.LongText
+  attachmentName         String?         @db.VarChar(255)
+  bodegueroNotes         String?         @db.Text
+  responseAttachmentUrl  String?         @db.LongText
+  responseAttachmentName String?         @db.VarChar(255)
+  totalEstimatedCost     Float?          @default(0)
+  items              QuotationItem[]
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  @@map("quotation_requests")
+}
+
+model QuotationItem {
+  id                 String           @id @default(uuid())
+  quotationRequestId String
+  quotationRequest   QuotationRequest @relation(fields: [quotationRequestId], references: [id], onDelete: Cascade)
+  productName        String
+  productId          String?
+  product            Product?         @relation(fields: [productId], references: [id])
+  quantity           Int
+  unitMeasure        String?          @default("UN")
+  estimatedUnitPrice Float?           @default(0)
+  supplier           String?
+  itemNotes          String?          @db.Text
+  linkUrl            String?          @db.Text
+
+  @@map("quotation_items")
+}
+
+model Van {
+  id        String    @id @default(uuid())
+  plate     String    @unique @db.VarChar(20)
+  name      String    @db.VarChar(255)
+  driver    String?   @db.VarChar(255)
+  status    String    @default("EN_TERRENO") @db.VarChar(50)
+  notes     String?   @db.Text
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  items     VanItem[]
+  materialRequests MaterialRequest[]
+
+  @@map("vans")
+}
+
+model VanItem {
+  id          String   @id @default(uuid())
+  vanId       String
+  van         Van      @relation(fields: [vanId], references: [id], onDelete: Cascade)
+  productId   String?
+  product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  name        String   @db.VarChar(255)
+  sku         String?  @db.VarChar(100)
+  category    String   @default("EQUIPOS") @db.VarChar(100)
+  type        String   @default("MATERIAL") @db.VarChar(50)
+  quantity    Int      @default(0)
+  minQuantity Int      @default(1)
+  assignedTo  String?  @db.VarChar(255)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([vanId])
+  @@index([productId])
+  @@map("van_items")
+}
+

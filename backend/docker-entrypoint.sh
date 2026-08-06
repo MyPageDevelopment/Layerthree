@@ -2,10 +2,10 @@
 set -e
 
 echo "🔄 Ejecutando prisma db push para sincronizar esquemas de base de datos..."
-npx prisma db push --accept-data-loss
+npx prisma db push
 
-echo "🌱 Ejecutando seed de base de datos para usuario Super Admin..."
-node prisma/seed.js
+echo "🌱 Ejecutando seed de base de datos para usuarios iniciales..."
+npx prisma db seed || true
 
 echo "🚀 Iniciando Backend NestJS..."
 if [ -f "dist/main.js" ]; then

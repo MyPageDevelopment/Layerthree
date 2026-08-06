@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { getUser, logout } from '@/lib/auth'
@@ -20,6 +21,7 @@ interface NotificationItem {
 export default function Navbar() {
   const router = useRouter()
   const pathname = usePathname()
+  const [mounted, setMounted] = useState(false)
   const [user, setUser] = useState<User | null>(null)
   const { theme, toggleTheme } = useTheme()
   const [notifications, setNotifications] = useState<NotificationItem[]>([])
@@ -27,12 +29,41 @@ export default function Navbar() {
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
+  const notifRef = useRef<HTMLDivElement>(null)
+  const userMenuRef = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
+    setMounted(true)
     setUser(getUser())
     fetchNotifications()
     const interval = setInterval(fetchNotifications, 15000)
-    return () => clearInterval(interval)
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
+        setShowNotifications(false)
+      }
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setShowUserMenu(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
   }, [])
+
+  useEffect(() => {
+    if (mobileMenuOpen) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [mobileMenuOpen])
 
   const fetchNotifications = async () => {
     try {
@@ -76,13 +107,16 @@ export default function Navbar() {
   const navLinks = [
     { name: 'Bodega / Inventario', href: '/bodega', icon: '📦', show: true },
     { name: 'Solicitudes / Pedidos', href: '/solicitudes', icon: '📑', show: true },
+    { name: 'Cotizaciones', href: '/cotizaciones', icon: '📝', show: true },
     { name: 'Calendario', href: '/calendario', icon: '📅', show: true },
     { name: 'Actividades', href: '/actividades', icon: '📋', show: true },
+    { name: 'Stock Camionetas', href: '/camionetas', icon: '🛻', show: true },
     { name: 'Gestión de Usuarios', href: '/usuarios', icon: '👥', show: user?.role === 'SUPER_ADMIN' },
   ]
 
   return (
-    <header className="w-full sticky top-0 z-40 backdrop-blur-md bg-white/95 dark:bg-slate-900/95 border-b border-slate-200 dark:border-slate-800 transition-colors shadow-sm text-slate-900 dark:text-white">
+    <>
+      <header className="w-full sticky top-0 z-40 backdrop-blur-md bg-white/95 dark:bg-slate-900/95 border-b border-slate-200 dark:border-slate-800 transition-colors shadow-sm text-slate-900 dark:text-white">
       <div className="w-full px-3 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16 items-center">
           {/* Mobile Hamburger & Logo */}
@@ -105,7 +139,7 @@ export default function Navbar() {
               </div>
               <div className="flex flex-col">
                 <span className="font-extrabold text-xs sm:text-base tracking-tight bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-400 dark:to-indigo-300 bg-clip-text text-transparent leading-none sm:leading-normal">
-                  INTRANET LAYERTHREE
+                  LAYERTHREE
                 </span>
                 <span className="text-[9px] sm:text-[10px] uppercase font-semibold text-slate-400 tracking-wider hidden sm:block">
                   Plataforma Corporativa
@@ -128,7 +162,7 @@ export default function Navbar() {
 
             {/* Notification Bell Dropdown */}
             {user && (
-              <div className="relative">
+              <div className="relative" ref={notifRef}>
                 <button
                   onClick={() => {
                     setShowNotifications(!showNotifications)
@@ -200,7 +234,7 @@ export default function Navbar() {
 
             {/* User Profile Pill & Dropdown */}
             {user && (
-              <div className="relative border-l border-slate-200 dark:border-slate-800 pl-2 sm:pl-4">
+              <div className="relative border-l border-slate-200 dark:border-slate-800 pl-2 sm:pl-4" ref={userMenuRef}>
                 <button
                   onClick={() => {
                     setShowUserMenu(!showUserMenu)
@@ -224,7 +258,7 @@ export default function Navbar() {
 
                 {/* Profile Menu Dropdown */}
                 {showUserMenu && (
-                  <div className="absolute right-0 mt-3 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 p-2 space-y-1 text-xs">
+                  <div className="absolute right-0 mt-3 w-56 max-w-[calc(100vw-1.5rem)] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 p-2 space-y-1 text-xs">
                     <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-800">
                       <p className="font-bold text-slate-900 dark:text-white">{user.name || 'Usuario'}</p>
                       <p className="text-slate-400 font-mono text-[11px] truncate">{user.email}</p>
@@ -246,6 +280,14 @@ export default function Navbar() {
                       >
                         <span>📑</span>
                         <span>Solicitudes de Materiales</span>
+                      </Link>
+                      <Link
+                        href="/ajustes"
+                        onClick={() => setShowUserMenu(false)}
+                        className="flex items-center space-x-2 px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium"
+                      >
+                        <span>⚙️</span>
+                        <span>Ajustes de Perfil</span>
                       </Link>
                       {user.role === 'SUPER_ADMIN' && (
                         <Link
@@ -276,79 +318,82 @@ export default function Navbar() {
         </div>
       </div>
 
-      {/* Mobile Sidebar Navigation Drawer (Fix high contrast visible drawer) */}
-      {mobileMenuOpen && (
-        <div className="fixed inset-0 z-50 md:hidden flex">
-          {/* Backdrop */}
-          <div
-            className="fixed inset-0 bg-black/80 backdrop-blur-sm"
-            onClick={() => setMobileMenuOpen(false)}
-          ></div>
+    </header>
 
-          {/* Drawer Window */}
-          <div className="relative bg-white dark:bg-slate-900 text-slate-900 dark:text-white w-72 max-w-[85vw] h-full p-5 space-y-6 flex flex-col z-10 shadow-2xl border-r border-slate-200 dark:border-slate-800">
-            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-4">
-              <div className="flex items-center space-x-2">
-                <div className="w-8 h-8 rounded-lg bg-blue-600 text-white font-bold flex items-center justify-center text-sm">
-                  L3
-                </div>
-                <span className="font-extrabold text-base text-slate-900 dark:text-white">Navegación Intranet</span>
+    {/* Mobile Sidebar Navigation Drawer (Portaleado a document.body para evitar trasposición) */}
+    {mounted && mobileMenuOpen && createPortal(
+      <div className="fixed inset-0 z-[99999] md:hidden flex overflow-hidden">
+        {/* Backdrop */}
+        <div
+          className="fixed inset-0 bg-black/80 backdrop-blur-sm"
+          onClick={() => setMobileMenuOpen(false)}
+        ></div>
+
+        {/* Drawer Window */}
+        <div className="relative bg-white dark:bg-slate-900 text-slate-900 dark:text-white w-72 max-w-[85vw] h-full max-h-[100dvh] p-5 flex flex-col z-10 shadow-2xl border-r border-slate-200 dark:border-slate-800 overscroll-contain touch-pan-y">
+          <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-4 shrink-0">
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 rounded-lg bg-blue-600 text-white font-bold flex items-center justify-center text-sm shadow">
+                L3
               </div>
+              <span className="font-extrabold text-base text-slate-900 dark:text-white">Navegación Layerthree</span>
+            </div>
+            <button
+              onClick={() => setMobileMenuOpen(false)}
+              className="text-slate-500 hover:text-slate-900 dark:hover:text-white text-xl font-bold p-1 bg-slate-100 dark:bg-slate-800 rounded-lg w-8 h-8 flex items-center justify-center"
+            >
+              ✕
+            </button>
+          </div>
+
+          <nav className="py-4 space-y-2 flex-1 overflow-y-auto min-h-0 pr-1 overscroll-contain">
+            {navLinks.filter(i => i.show).map((item) => {
+              const isActive = pathname.startsWith(item.href)
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`flex items-center space-x-3 px-4 py-3.5 rounded-xl text-sm font-bold transition ${
+                    isActive
+                      ? 'bg-blue-600 text-white shadow-lg'
+                      : 'text-slate-900 dark:text-white bg-slate-100 dark:bg-slate-800/90 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
+                  }`}
+                >
+                  <span className="text-xl">{item.icon}</span>
+                  <span>{item.name}</span>
+                </Link>
+              )
+            })}
+          </nav>
+
+          {user && (
+            <div className="border-t border-slate-200 dark:border-slate-800 pt-4 space-y-3 shrink-0">
+              <div className="flex items-center space-x-3 bg-slate-100 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                <div className="w-9 h-9 rounded-xl bg-blue-600 text-white font-bold flex items-center justify-center text-sm shadow">
+                  {userInitial}
+                </div>
+                <div className="overflow-hidden">
+                  <p className="font-bold text-xs text-slate-900 dark:text-white truncate">{user.name || user.email}</p>
+                  <p className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold uppercase">{user.role}</p>
+                </div>
+              </div>
+
               <button
-                onClick={() => setMobileMenuOpen(false)}
-                className="text-slate-500 hover:text-slate-900 dark:hover:text-white text-xl font-bold p-1"
+                onClick={() => {
+                  setMobileMenuOpen(false)
+                  logout()
+                }}
+                className="w-full text-center py-3 bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 font-bold rounded-xl text-xs border border-red-200 dark:border-red-800 shadow-sm"
               >
-                ✕
+                🚪 Cerrar Sesión
               </button>
             </div>
-
-            <nav className="space-y-1.5 flex-1">
-              {navLinks.filter(i => i.show).map((item) => {
-                const isActive = pathname.startsWith(item.href)
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className={`flex items-center space-x-3 px-4 py-3.5 rounded-xl text-sm font-bold transition ${
-                      isActive
-                        ? 'bg-blue-600 text-white shadow-lg'
-                        : 'text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/80 border border-slate-200 dark:border-slate-800'
-                    }`}
-                  >
-                    <span className="text-xl">{item.icon}</span>
-                    <span>{item.name}</span>
-                  </Link>
-                )
-              })}
-            </nav>
-
-            {user && (
-              <div className="border-t border-slate-200 dark:border-slate-800 pt-4 space-y-3">
-                <div className="flex items-center space-x-3 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
-                  <div className="w-9 h-9 rounded-xl bg-blue-600 text-white font-bold flex items-center justify-center text-sm shadow">
-                    {userInitial}
-                  </div>
-                  <div className="overflow-hidden">
-                    <p className="font-bold text-xs text-slate-900 dark:text-white truncate">{user.name || user.email}</p>
-                    <p className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold uppercase">{user.role}</p>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => {
-                    setMobileMenuOpen(false)
-                    logout()
-                  }}
-                  className="w-full text-center py-3 bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 font-bold rounded-xl text-xs border border-red-200 dark:border-red-800 shadow-sm"
-                >
-                  🚪 Cerrar Sesión
-                </button>
-              </div>
-            )}
-          </div>
+          )}
         </div>
-      )}
-    </header>
+      </div>,
+      document.body
+    )}
+  </>
   )
 }

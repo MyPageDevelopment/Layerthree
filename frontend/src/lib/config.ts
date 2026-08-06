@@ -20,7 +20,7 @@ export const API_URL = getApiUrl();
 
 export const config = {
   apiUrl: API_URL,
-  appName: 'Sistema Intranet Layerthree',
+  appName: 'Plataforma Layerthree',
   version: '2.0.0',
   environment: process.env.NODE_ENV || 'development',
 };

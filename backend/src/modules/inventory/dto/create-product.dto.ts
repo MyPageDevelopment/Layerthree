@@ -30,4 +30,27 @@ export class CreateProductDto {
   @IsNumber()
   @Min(0)
   unitPrice: number;
+
+  @IsOptional()
+  @IsString()
+  unit?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  unitCost?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  totalCost?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  listPrice?: number;
+
+  @IsOptional()
+  @IsString()
+  supplierCode?: string;
 }

@@ -75,36 +75,38 @@ export default function CalendarioPage() {
         </div>
 
         {/* Calendar Grid Demo */}
-        <div className="grid grid-cols-7 gap-2 text-center text-xs">
-          {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map(d => (
-            <div key={d} className="font-bold text-slate-400 uppercase py-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg">{d}</div>
-          ))}
-          {Array.from({ length: 14 }).map((_, i) => {
-            const dayNum = i + 14
-            return (
-              <div
-                key={i}
-                className="min-h-24 p-2 bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-xl flex flex-col justify-start text-left space-y-1 hover:border-blue-500 transition cursor-pointer"
-              >
-                <span className="font-bold text-slate-700 dark:text-slate-300 text-xs">{dayNum}</span>
-                {i === 2 && (
-                  <span className="bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-800 text-[10px] p-1 rounded font-semibold truncate">
-                    🚗 Camioneta #04 - Proyecto NOC
-                  </span>
-                )}
-                {i === 5 && (
-                  <span className="bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 text-[10px] p-1 rounded font-semibold truncate">
-                    ⚡ Turno Noche FO - Cuadrilla B
-                  </span>
-                )}
-                {i === 9 && (
-                  <span className="bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 text-[10px] p-1 rounded font-semibold truncate">
-                    📦 Retiro Fusionadora Bodega
-                  </span>
-                )}
-              </div>
-            )
-          })}
+        <div className="overflow-x-auto pb-2">
+          <div className="grid grid-cols-7 gap-2 text-center text-xs min-w-[640px]">
+            {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map(d => (
+              <div key={d} className="font-bold text-slate-400 uppercase py-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg">{d}</div>
+            ))}
+            {Array.from({ length: 14 }).map((_, i) => {
+              const dayNum = i + 14
+              return (
+                <div
+                  key={i}
+                  className="min-h-24 p-2 bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-xl flex flex-col justify-start text-left space-y-1 hover:border-blue-500 transition cursor-pointer"
+                >
+                  <span className="font-bold text-slate-700 dark:text-slate-300 text-xs">{dayNum}</span>
+                  {i === 2 && (
+                    <span className="bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-800 text-[10px] p-1 rounded font-semibold truncate">
+                      🚗 Camioneta #04 - Proyecto NOC
+                    </span>
+                  )}
+                  {i === 5 && (
+                    <span className="bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 text-[10px] p-1 rounded font-semibold truncate">
+                      ⚡ Turno Noche FO - Cuadrilla B
+                    </span>
+                  )}
+                  {i === 9 && (
+                    <span className="bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 text-[10px] p-1 rounded font-semibold truncate">
+                      📦 Retiro Fusionadora Bodega
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
         </div>
       </div>
 
