@@ -84,14 +84,14 @@ export default function SolicitudesPage() {
   const [selectedVanId, setSelectedVanId] = useState<string>('')
   const [itemChecks, setItemChecks] = useState<Record<string, { isChecked: boolean; quantity: number }>>({})
 
+  // Items Dropdown state for Desktop & Mobile
+  const [openItemsDropdownId, setOpenItemsDropdownId] = useState<string | null>(null)
+
   // Supplier Quote Modal State (For Bodeguero for missing items)
   const [showSupplierQuoteModal, setShowSupplierQuoteModal] = useState(false)
   const [supplierQuoteRequest, setSupplierQuoteRequest] = useState<MaterialRequest | null>(null)
-  const [supplierEmail, setSupplierEmail] = useState('')
   const [supplierName, setSupplierName] = useState('')
   const [supplierNotes, setSupplierNotes] = useState('')
-  const [isSendingSupplierQuote, setIsSendingSupplierQuote] = useState(false)
-  const [supplierQuoteSuccessMsg, setSupplierQuoteSuccessMsg] = useState('')
 
   // Proof Photo View Modal
   const [viewPhotoRequest, setViewPhotoRequest] = useState<MaterialRequest | null>(null)
@@ -358,49 +358,34 @@ export default function SolicitudesPage() {
   // Handle Supplier Quote Generation (Bodeguero)
   const handleOpenSupplierQuoteModal = (req: MaterialRequest) => {
     setSupplierQuoteRequest(req)
-    setSupplierEmail('')
     setSupplierName('')
     setSupplierNotes('')
-    setSupplierQuoteSuccessMsg('')
     setShowSupplierQuoteModal(true)
   }
 
-  const handleSendSupplierQuote = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!supplierQuoteRequest || !supplierEmail.trim()) {
-      alert('Debes ingresar el correo del proveedor')
-      return
-    }
+  const handleOpenMailClient = (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    if (!supplierQuoteRequest) return
 
-    setIsSendingSupplierQuote(true)
-    try {
-      const itemsPayload = supplierQuoteRequest.items.map((item) => {
-        const isUtp = (item.product?.name || '').toUpperCase().includes('UTP') || (item.product?.sku || '').toUpperCase().includes('UTP')
-        return {
-          sku: item.product?.sku || '',
-          productName: item.product?.name || 'Producto',
-          quantity: item.requestedQuantity,
-          unitMeasure: isUtp ? 'MTS' : (item.unitMeasure || item.product?.unit || 'UN'),
-        }
-      })
+    const isUtp = (name: string) => name.toUpperCase().includes('UTP')
+    const itemsText = supplierQuoteRequest.items
+      .map(
+        (i) =>
+          `- [SKU: ${i.product?.sku || 'N/A'}] ${i.product?.name || i.productName}: ${i.requestedQuantity} ${
+            isUtp(i.product?.name || '') ? 'MTS' : (i.unitMeasure || i.product?.unit || 'UN')
+          }`,
+      )
+      .join('\n')
 
-      const res = await api.post('/requests/send-supplier-quote-email', {
-        supplierEmail,
-        supplierName: supplierName || 'Proveedor',
-        requestCode: supplierQuoteRequest.code,
-        items: itemsPayload,
-        customNotes: supplierNotes,
-      })
+    const subject = `LAYERTHREE S.A. - Solicitud de Cotización de Materiales [${supplierQuoteRequest.code}] - Proyecto: ${supplierQuoteRequest.projectName || 'General'}`
 
-      setSupplierQuoteSuccessMsg(res.data?.message || 'Correo de cotización enviado exitosamente al proveedor')
-      setTimeout(() => {
-        setShowSupplierQuoteModal(false)
-      }, 2500)
-    } catch (err: any) {
-      alert(err.response?.data?.message || 'Error al enviar la solicitud de cotización al proveedor')
-    } finally {
-      setIsSendingSupplierQuote(false)
-    }
+    const body = `Estimados ${supplierName.trim() || 'Proveedor'},\n\nJunto con saludarles, desde el departamento de Adquisiciones y Logística de Layerthree S.A. solicitamos la cotización de precios y tiempo de entrega estimado para la siguiente lista de materiales:\n\n${itemsText}\n\n${
+      supplierNotes.trim() ? `Observaciones Adicionales:\n${supplierNotes.trim()}\n\n` : ''
+    }Quedamos atentos a su pronta respuesta.\n\nAtentamente,\nDepartamento de Bodega y Logística\nLayerthree S.A.`
+
+    const mailtoUrl = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+
+    window.location.href = mailtoUrl
   }
 
   const handleCopyQuoteText = () => {
@@ -569,7 +554,7 @@ export default function SolicitudesPage() {
                       )}
                     </div>
 
-                    <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5 text-xs">
+                    <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
                       <p className="font-semibold text-[11px] text-slate-500 uppercase">Ítems Requeridos:</p>
                       {r.items.length === 0 ? (
                         <div className="bg-amber-50 dark:bg-amber-950/40 p-2 rounded-lg border border-amber-200 dark:border-amber-800/60 text-xs text-amber-800 dark:text-amber-300 font-medium flex items-center gap-1.5">
@@ -577,27 +562,50 @@ export default function SolicitudesPage() {
                           <span>Solicitud con foto/planilla adjunta (sin productos en lista)</span>
                         </div>
                       ) : (
-                        r.items.map((item) => {
-                          const isUtp = (item.product?.name || '').toUpperCase().includes('UTP') || (item.product?.sku || '').toUpperCase().includes('UTP')
-                          const unitStr = isUtp ? 'MTS' : (item.unitMeasure || item.product?.unit || 'UN')
-                          const currentStock = item.product?.stock ?? 0
-                          const hasEnoughStock = currentStock >= item.requestedQuantity
+                        <div className="space-y-2">
+                          <button
+                            type="button"
+                            onClick={() => setOpenItemsDropdownId(openItemsDropdownId === r.id ? null : r.id)}
+                            className="w-full flex items-center justify-between px-3 py-2 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800/80 rounded-xl font-semibold text-slate-700 dark:text-slate-200 transition border border-slate-200 dark:border-slate-700 shadow-sm"
+                          >
+                            <span className="flex items-center gap-2">
+                              <span>📦</span>
+                              <span>{r.items.length} {r.items.length === 1 ? 'Ítem Requerido' : 'Ítems Requeridos'}</span>
+                              {r.items.some(i => (i.product?.stock ?? 0) < i.requestedQuantity) && (
+                                <span className="px-1.5 py-0.5 text-[9px] bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 font-bold rounded">
+                                  Sin Stock
+                                </span>
+                              )}
+                            </span>
+                            <span className="text-slate-400 text-xs">{openItemsDropdownId === r.id ? '▲ Ocultar' : '▼ Ver Lista'}</span>
+                          </button>
 
-                          return (
-                            <div key={item.id} className="flex items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800/50 pb-1 last:border-0">
-                              <span className={item.isChecked ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-300 font-medium'}>
-                                • {item.product?.name || item.productName} (x{item.requestedQuantity} {unitStr})
-                              </span>
-                              <span className={`px-2 py-0.5 text-[10px] rounded font-semibold ${
-                                hasEnoughStock
-                                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                                  : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
-                              }`}>
-                                {hasEnoughStock ? `Stock: ${currentStock}` : `Sin Stock (${currentStock})`}
-                              </span>
+                          {openItemsDropdownId === r.id && (
+                            <div className="p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 space-y-1.5 animate-fadeIn shadow-inner">
+                              {r.items.map((item) => {
+                                const isUtp = (item.product?.name || item.productName || '').toUpperCase().includes('UTP') || (item.product?.sku || item.sku || '').toUpperCase().includes('UTP')
+                                const unitStr = isUtp ? 'MTS' : (item.unitMeasure || item.product?.unit || 'UN')
+                                const currentStock = item.product?.stock ?? 0
+                                const hasEnoughStock = currentStock >= item.requestedQuantity
+
+                                return (
+                                  <div key={item.id} className="flex items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800/50 pb-1 last:border-0">
+                                    <span className={item.isChecked ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-300 font-medium'}>
+                                      • {item.product?.name || item.productName} (x{item.requestedQuantity} {unitStr})
+                                    </span>
+                                    <span className={`px-2 py-0.5 text-[10px] rounded font-semibold ${
+                                      hasEnoughStock
+                                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                                        : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
+                                    }`}>
+                                      {hasEnoughStock ? `Stock: ${currentStock}` : `Sin Stock (${currentStock})`}
+                                    </span>
+                                  </div>
+                                )
+                              })}
                             </div>
-                          )
-                        })
+                          )}
+                        </div>
                       )}
                     </div>
 
@@ -703,35 +711,74 @@ export default function SolicitudesPage() {
                               <span className="text-slate-400 italic">Pendiente de despacho</span>
                             )}
                           </td>
-                          <td className="p-4 text-xs space-y-1.5">
+                          <td className="p-4 text-xs relative">
                             {r.items.length === 0 ? (
                               <div className="bg-amber-50 dark:bg-amber-950/40 p-2 rounded-lg border border-amber-200 dark:border-amber-800/60 text-xs text-amber-800 dark:text-amber-300 font-medium flex items-center gap-1.5">
                                 <span>📷</span>
                                 <span>Solicitud con foto/planilla adjunta (sin lista)</span>
                               </div>
                             ) : (
-                              r.items.map((item) => {
-                                const isUtp = (item.product?.name || item.productName || '').toUpperCase().includes('UTP') || (item.product?.sku || item.sku || '').toUpperCase().includes('UTP')
-                                const unitStr = isUtp ? 'MTS' : (item.unitMeasure || item.product?.unit || 'UN')
-                                const currentStock = item.product?.stock ?? 0
-                                const hasEnoughStock = currentStock >= item.requestedQuantity
-                                const displayName = item.product?.name || item.productName || 'Producto'
+                              <div className="relative">
+                                <button
+                                  type="button"
+                                  onClick={() => setOpenItemsDropdownId(openItemsDropdownId === r.id ? null : r.id)}
+                                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-2 transition shadow-sm ${
+                                    hasMissingStock
+                                      ? 'bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/50 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                                      : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-700'
+                                  }`}
+                                >
+                                  <span>📦</span>
+                                  <span>{r.items.length} {r.items.length === 1 ? 'Ítem' : 'Ítems'}</span>
+                                  {hasMissingStock ? (
+                                    <span className="px-1.5 py-0.5 text-[10px] rounded bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 font-bold border border-red-300 dark:border-red-800">
+                                      Falta Stock
+                                    </span>
+                                  ) : (
+                                    <span className="px-1.5 py-0.5 text-[10px] rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-bold border border-emerald-300 dark:border-emerald-800">
+                                      Stock OK
+                                    </span>
+                                  )}
+                                  <span className="text-[10px] text-slate-400">{openItemsDropdownId === r.id ? '▲' : '▼'}</span>
+                                </button>
 
-                                return (
-                                  <div key={item.id} className="flex items-center justify-between gap-3 bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-lg border border-slate-200/60 dark:border-slate-800">
-                                    <span className={item.isChecked ? 'line-through text-slate-400 font-medium' : 'font-medium'}>
-                                      • {displayName} (<strong>{item.requestedQuantity} {unitStr}</strong>)
-                                    </span>
-                                    <span className={`px-2 py-0.5 text-[10px] rounded font-bold ${
-                                      hasEnoughStock
-                                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                                        : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 border border-red-300'
-                                    }`}>
-                                      {hasEnoughStock ? `Stock: ${currentStock}` : `Sin Stock (${currentStock})`}
-                                    </span>
+                                {openItemsDropdownId === r.id && (
+                                  <div className="absolute left-0 top-full mt-2 w-72 sm:w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-3 z-30 space-y-2 text-xs max-h-64 overflow-y-auto">
+                                    <div className="flex justify-between items-center pb-1.5 border-b border-slate-200 dark:border-slate-800 font-semibold text-slate-500 dark:text-slate-400">
+                                      <span>Detalle de Materiales ({r.items.length})</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => setOpenItemsDropdownId(null)}
+                                        className="text-slate-400 hover:text-slate-600 dark:hover:text-white font-bold px-1"
+                                      >
+                                        ✕
+                                      </button>
+                                    </div>
+                                    {r.items.map((item) => {
+                                      const isUtp = (item.product?.name || item.productName || '').toUpperCase().includes('UTP') || (item.product?.sku || item.sku || '').toUpperCase().includes('UTP')
+                                      const unitStr = isUtp ? 'MTS' : (item.unitMeasure || item.product?.unit || 'UN')
+                                      const currentStock = item.product?.stock ?? 0
+                                      const hasEnoughStock = currentStock >= item.requestedQuantity
+                                      const displayName = item.product?.name || item.productName || 'Producto'
+
+                                      return (
+                                        <div key={item.id} className="flex items-center justify-between gap-2 bg-slate-50 dark:bg-slate-800/60 p-2 rounded-lg border border-slate-200 dark:border-slate-800">
+                                          <span className={item.isChecked ? 'line-through text-slate-400 font-medium' : 'font-medium text-slate-800 dark:text-slate-200'}>
+                                            • {displayName} (<strong>{item.requestedQuantity} {unitStr}</strong>)
+                                          </span>
+                                          <span className={`px-2 py-0.5 text-[10px] rounded font-bold shrink-0 ${
+                                            hasEnoughStock
+                                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                                              : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 border border-red-300'
+                                          }`}>
+                                            {hasEnoughStock ? `Stock: ${currentStock}` : `Sin Stock (${currentStock})`}
+                                          </span>
+                                        </div>
+                                      )
+                                    })}
                                   </div>
-                                )
-                              })
+                                )}
+                              </div>
                             )}
                           </td>
                           <td className="p-4">
@@ -1315,57 +1362,36 @@ export default function SolicitudesPage() {
             <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
               <div>
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <span>📧</span> Redactar y Enviar Cotización a Proveedor
+                  <span>📧</span> Redactar Cotización a Proveedor
                 </h3>
                 <p className="text-xs text-slate-400 font-mono">Solicitud Origen: {supplierQuoteRequest.code} ({supplierQuoteRequest.projectName})</p>
               </div>
               <button
                 onClick={() => setShowSupplierQuoteModal(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-white text-xl"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white text-xl font-bold"
               >
                 ✕
               </button>
             </div>
 
-            {supplierQuoteSuccessMsg && (
-              <div className="p-3 bg-emerald-100 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-xs rounded-xl font-bold flex items-center gap-2">
-                <span>✅</span> {supplierQuoteSuccessMsg}
-              </div>
-            )}
-
-            <form onSubmit={handleSendSupplierQuote} className="space-y-4 text-xs sm:text-sm">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Correo Electrónico Proveedor <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="email"
-                    required
-                    value={supplierEmail}
-                    onChange={(e) => setSupplierEmail(e.target.value)}
-                    placeholder="ejemplo: ventas@proveedor.cl"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Nombre Empresa / Proveedor
-                  </label>
-                  <input
-                    type="text"
-                    value={supplierName}
-                    onChange={(e) => setSupplierName(e.target.value)}
-                    placeholder="Ej: Distribuidora Eléctrica Ltda."
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
-                  />
-                </div>
+            <form onSubmit={handleOpenMailClient} className="space-y-4 text-xs sm:text-sm">
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Nombre Empresa / Proveedor (Opcional)
+                </label>
+                <input
+                  type="text"
+                  value={supplierName}
+                  onChange={(e) => setSupplierName(e.target.value)}
+                  placeholder="Ej: Distribuidora Eléctrica Ltda. (dejar en blanco para 'Proveedor')"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
+                />
               </div>
 
               {/* Table Preview of Material Items */}
               <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
                 <label className="block font-bold text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  📋 Lista de Materiales a Cotizar (Muestra Unidades y Metros UTP):
+                  📋 Lista de Materiales a Cotizar:
                 </label>
                 <div className="space-y-1 max-h-36 overflow-y-auto">
                   {supplierQuoteRequest.items.map((item) => {
@@ -1376,7 +1402,7 @@ export default function SolicitudesPage() {
                     return (
                       <div key={item.id} className="flex justify-between items-center bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-800 text-xs">
                         <div>
-                          <span className="font-semibold text-slate-900 dark:text-white">{item.product?.name}</span>
+                          <span className="font-semibold text-slate-900 dark:text-white">{item.product?.name || item.productName}</span>
                           <span className="text-[11px] text-slate-400 font-mono ml-2">SKU: {item.product?.sku || 'N/A'}</span>
                         </div>
                         <div className="flex items-center gap-2">
@@ -1406,6 +1432,13 @@ export default function SolicitudesPage() {
                 />
               </div>
 
+              <div className="p-3 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 text-xs space-y-1">
+                <span className="font-bold text-slate-700 dark:text-slate-300 block">ℹ️ Envío directo desde tu App de Correo:</span>
+                <p className="text-slate-500 dark:text-slate-400">
+                  Al hacer clic en <strong>"Abrir en App de Correo"</strong>, se abrirá tu programa de correo predeterminado (Outlook, Gmail, Thunderbird, etc.) con el cuerpo formal del mensaje ya redactado. Allí podrás colocar los destinatarios correspondientes.
+                </p>
+              </div>
+
               {/* Toolbar Actions: Copy / Print / Email */}
               <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
                 <div className="flex items-center gap-2">
@@ -1421,7 +1454,7 @@ export default function SolicitudesPage() {
                     onClick={handlePrintQuoteDoc}
                     className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
                   >
-                    <span>🖨️</span> Descargar / Imprimir PDF
+                    <span>𖠡</span> Descargar / Imprimir PDF
                   </button>
                 </div>
 
@@ -1435,10 +1468,9 @@ export default function SolicitudesPage() {
                   </button>
                   <button
                     type="submit"
-                    disabled={isSendingSupplierQuote || !supplierEmail.trim()}
-                    className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold shadow disabled:opacity-50 flex items-center gap-1.5"
+                    className="px-4 py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold shadow flex items-center gap-1.5 transition active:scale-95"
                   >
-                    <span>✉️</span> {isSendingSupplierQuote ? 'Enviando...' : 'Enviar Correo al Proveedor'}
+                    <span>✉️</span> Abrir en App de Correo
                   </button>
                 </div>
               </div>
