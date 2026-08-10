@@ -1,0 +1,3 @@
+# Forzar saltos de linea formato Linux (LF) en scripts bash para contenedores Docker
+*.sh text eol=lf
+docker-entrypoint.sh text eol=lf
