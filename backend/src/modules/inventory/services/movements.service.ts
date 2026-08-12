@@ -187,15 +187,65 @@ export class MovementsService {
       }
     }
 
+    let updatedNotes = createBulkMovementDto.notes || '';
+    if (createBulkMovementDto.vanId) {
+      const van = await this.prisma.van.findUnique({
+        where: { id: createBulkMovementDto.vanId },
+      });
+      if (van) {
+        const actionLabel = createBulkMovementDto.type === 'EXIT' ? 'Asignado a' : 'Devuelto desde';
+        updatedNotes = `${updatedNotes} [${actionLabel} Vehículo: ${van.plate} - ${van.name}]`.trim();
+
+        for (const item of createBulkMovementDto.items) {
+          const product = products.find(p => p.id === item.productId);
+          if (!product) continue;
+          const existingVanItem = await this.prisma.vanItem.findFirst({
+            where: {
+              vanId: van.id,
+              OR: [{ productId: product.id }, { name: product.name }],
+            },
+          });
+
+          if (createBulkMovementDto.type === 'EXIT') {
+            if (existingVanItem) {
+              await this.prisma.vanItem.update({
+                where: { id: existingVanItem.id },
+                data: { quantity: { increment: item.quantity } },
+              });
+            } else {
+              await this.prisma.vanItem.create({
+                data: {
+                  vanId: van.id,
+                  productId: product.id,
+                  name: product.name,
+                  category: product.category,
+                  quantity: item.quantity,
+                  minQuantity: product.minStock || 1,
+                },
+              });
+            }
+          } else if (createBulkMovementDto.type === 'ENTRY') {
+            if (existingVanItem) {
+              const newQty = Math.max(0, existingVanItem.quantity - item.quantity);
+              await this.prisma.vanItem.update({
+                where: { id: existingVanItem.id },
+                data: { quantity: newQty },
+              });
+            }
+          }
+        }
+      }
+    }
+
     const movements = await this.prisma.$transaction(
       createBulkMovementDto.items.flatMap(item => [
         this.prisma.movement.create({
           data: {
             productId: item.productId,
-            projectId: createBulkMovementDto.projectId,
+            projectId: createBulkMovementDto.projectId || undefined,
             type: createBulkMovementDto.type,
             quantity: item.quantity,
-            notes: createBulkMovementDto.notes,
+            notes: updatedNotes || undefined,
             userId,
           },
         }),

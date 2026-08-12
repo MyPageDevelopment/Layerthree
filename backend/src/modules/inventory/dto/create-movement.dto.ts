@@ -5,8 +5,9 @@ export class CreateMovementDto {
   @IsUUID()
   productId: string;
 
+  @IsOptional()
   @IsString()
-  projectId: string;
+  projectId?: string;
 
   @IsEnum(MovementType)
   type: MovementType;

@@ -1229,7 +1229,7 @@ export default function BodegaPage() {
                   </button>
                 </div>
 
-                <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+                <div className="space-y-3">
                   {movementItems.map((item, idx) => (
                     <div key={idx} className="flex gap-2 items-center bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800">
                       <div className="flex-1">

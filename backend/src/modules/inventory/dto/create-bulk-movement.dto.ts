@@ -17,8 +17,9 @@ export class CreateBulkMovementDto {
   @Type(() => MovementItemDto)
   items: MovementItemDto[];
 
+  @IsOptional()
   @IsString()
-  projectId: string;
+  projectId?: string;
 
   @IsEnum(MovementType)
   type: MovementType;
@@ -26,4 +27,8 @@ export class CreateBulkMovementDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsString()
+  vanId?: string;
 }
