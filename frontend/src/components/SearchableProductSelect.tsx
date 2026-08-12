@@ -151,7 +151,7 @@ export default function SearchableProductSelect({
                   <div className="text-right whitespace-nowrap shrink-0">
                     <span
                       className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                        product.stock <= (product.minStock || 0)
+                        product.stock < (product.minStock || 0)
                           ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300'
                           : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300'
                       }`}

@@ -233,7 +233,7 @@ export class ProductsService {
   async getLowStock() {
     return this.prisma.$queryRaw`
       SELECT * FROM products 
-      WHERE isDeleted = false AND stock <= minStock
+      WHERE isDeleted = false AND stock < minStock
       ORDER BY (minStock - stock) DESC, name ASC
     `;
   }

@@ -106,7 +106,7 @@ export default function BodegaPage() {
   })
 
   // Stats Dashboard
-  const lowStockList = products.filter((p) => p.stock <= p.minStock)
+  const lowStockList = products.filter((p) => p.stock < p.minStock)
   const totalValue = products.reduce((sum, p) => {
     const cost = (p.unitCost && p.unitCost > 0) ? p.unitCost : (p.unitPrice || 0)
     return sum + (p.stock || 0) * cost
@@ -142,7 +142,7 @@ export default function BodegaPage() {
 
   // Filtrado Productos
   const filteredProducts = products.filter((p) => {
-    if (stockFilter === 'low-stock' && p.stock > p.minStock) return false
+    if (stockFilter === 'low-stock' && p.stock >= p.minStock) return false
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase()
       return (
@@ -632,7 +632,7 @@ export default function BodegaPage() {
                       <h4 className="font-bold text-sm text-slate-900 dark:text-white mt-1">{product.name}</h4>
                     </div>
                     <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${
-                      product.stock <= product.minStock
+                      product.stock < product.minStock
                         ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400 border border-red-300'
                         : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 border border-emerald-300'
                     }`}>
@@ -740,7 +740,7 @@ export default function BodegaPage() {
                         <td className="px-4 py-3">
                           <span
                             className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                              product.stock <= product.minStock
+                              product.stock < product.minStock
                                 ? 'bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-400 border border-red-300 dark:border-red-800'
                                 : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800'
                             }`}
