@@ -238,20 +238,38 @@ export class ProductsService {
     `;
   }
 
-  async getNextSku(categoryStr?: string): Promise<{ nextSku: string }> {
-    const category = (categoryStr || 'RED').toUpperCase().trim();
+  async getNextSku(categoryStr?: string, subcategoryStr?: string): Promise<{ nextSku: string }> {
+    const cat = (categoryStr || 'RED').toUpperCase().trim();
+    const subcat = (subcategoryStr || '').toUpperCase().trim();
 
     let prefix = 'LT-RED-';
-    if (category.includes('CANALIZA') || category.includes('EMT') || category.includes('PVC') || category.includes('CONDUIT')) {
-      prefix = 'LT-EMT-';
-    } else if (category.includes('FIBRA') || category.includes('OPTICA') || category.includes('F.O')) {
-      prefix = 'LT-FO-';
-    } else if (category.includes('ELECTRI')) {
+
+    if (cat.includes('FIBRA') || cat.includes('OPTICA') || cat.includes('F.O')) {
+      prefix = 'LT-F.O-';
+    } else if (cat.includes('ELECTRI')) {
       prefix = 'LT-ELE-';
-    } else if (category.includes('EQUIPO')) {
-      prefix = 'LT-EQ-';
-    } else if (category.includes('INSUMO')) {
-      prefix = 'LT-INS-';
+    } else if (cat.includes('INSUMO') || cat.includes('FERRETERIA') || cat.includes('FIJACION') || cat.includes('CONSUMIBLES')) {
+      prefix = 'LT-FER-';
+    } else if (cat.includes('HERRAMIENTA') || cat.includes('EQUIPO') || cat.includes('EPP')) {
+      if (subcat.includes('RACK') || subcat.includes('GABINETE')) {
+        prefix = 'LT-RAC-';
+      } else {
+        prefix = 'LT-HER-';
+      }
+    } else if (cat.includes('CANALIZA') || cat.includes('EMT') || cat.includes('PVC') || cat.includes('BPC') || cat.includes('BANDEJA')) {
+      if (subcat.includes('BANDEJA') || subcat.includes('BPC') || subcat.includes('ESCALERILLA')) {
+        prefix = 'LT-BPC-';
+      } else if (subcat.includes('PVC')) {
+        prefix = 'LT-PVC-';
+      } else if (subcat.includes('CANALETA') || subcat.includes('DLP') || subcat.includes('ZOLODA')) {
+        prefix = 'LT-DLP-';
+      } else if (subcat.includes('POSTE') || subcat.includes('INFRAESTRUCTURA')) {
+        prefix = 'LT-POS-';
+      } else {
+        prefix = 'LT-EMT-';
+      }
+    } else if (cat.includes('RED')) {
+      prefix = 'LT-RED-';
     }
 
     const products = await this.prisma.product.findMany({

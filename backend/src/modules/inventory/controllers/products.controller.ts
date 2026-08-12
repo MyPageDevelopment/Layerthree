@@ -60,8 +60,11 @@ export class ProductsController {
   }
 
   @Get('next-sku')
-  getNextSku(@Query('category') category?: string) {
-    return this.productsService.getNextSku(category);
+  getNextSku(
+    @Query('category') category?: string,
+    @Query('subcategory') subcategory?: string,
+  ) {
+    return this.productsService.getNextSku(category, subcategory);
   }
 
   @Get('audit/all')

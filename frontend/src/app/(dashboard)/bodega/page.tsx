@@ -136,9 +136,13 @@ export default function BodegaPage() {
   }
 
   // Auto SKU Generator
-  const fetchNextSku = async (category: string) => {
+  const fetchNextSku = async (category: string, subcategory?: string) => {
     try {
-      const res = await api.get<{ nextSku: string }>(`/products/next-sku?category=${category}`)
+      let url = `/products/next-sku?category=${encodeURIComponent(category)}`
+      if (subcategory) {
+        url += `&subcategory=${encodeURIComponent(subcategory)}`
+      }
+      const res = await api.get<{ nextSku: string }>(url)
       if (res.data?.nextSku) {
         setFormData(prev => ({ ...prev, sku: res.data.nextSku }))
       }
@@ -170,7 +174,7 @@ export default function BodegaPage() {
 
   const handleCategoryChangeInForm = (newCategory: ProductCategory) => {
     setFormData(prev => ({ ...prev, category: newCategory }))
-    fetchNextSku(newCategory)
+    fetchNextSku(newCategory, formData.subcategory)
   }
 
   const handleSaveQuickEdit = async (e: React.FormEvent) => {
