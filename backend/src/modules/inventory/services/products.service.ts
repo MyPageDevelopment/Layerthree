@@ -238,6 +238,44 @@ export class ProductsService {
     `;
   }
 
+  async getNextSku(categoryStr?: string): Promise<{ nextSku: string }> {
+    const category = (categoryStr || 'RED').toUpperCase().trim();
+
+    let prefix = 'LT-RED-';
+    if (category.includes('CANALIZA') || category.includes('EMT') || category.includes('PVC') || category.includes('CONDUIT')) {
+      prefix = 'LT-EMT-';
+    } else if (category.includes('FIBRA') || category.includes('OPTICA') || category.includes('F.O')) {
+      prefix = 'LT-FO-';
+    } else if (category.includes('ELECTRI')) {
+      prefix = 'LT-ELE-';
+    } else if (category.includes('EQUIPO')) {
+      prefix = 'LT-EQ-';
+    } else if (category.includes('INSUMO')) {
+      prefix = 'LT-INS-';
+    }
+
+    const products = await this.prisma.product.findMany({
+      where: {
+        sku: {
+          startsWith: prefix,
+        },
+      },
+      select: { sku: true },
+    });
+
+    let maxNum = 0;
+    for (const p of products) {
+      const numPart = p.sku.replace(prefix, '');
+      const num = parseInt(numPart, 10);
+      if (!isNaN(num) && num > maxNum) {
+        maxNum = num;
+      }
+    }
+
+    const nextNum = (maxNum + 1).toString().padStart(3, '0');
+    return { nextSku: `${prefix}${nextNum}` };
+  }
+
   private fixEncodingString(str: string): string {
     if (!str) return '';
 

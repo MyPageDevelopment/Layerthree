@@ -873,12 +873,14 @@ export default function CotizacionesPage() {
                           <input
                             type="number"
                             min="0"
-                            value={item.estimatedUnitPrice || 0}
+                            value={item.estimatedUnitPrice === 0 || !item.estimatedUnitPrice ? '' : item.estimatedUnitPrice}
+                            onFocus={(e) => e.target.select()}
                             onChange={(e) => {
                               const updated = [...quoteItemUpdates]
-                              updated[idx].estimatedUnitPrice = Number(e.target.value)
+                              updated[idx].estimatedUnitPrice = e.target.value === '' ? 0 : Number(e.target.value)
                               setQuoteItemUpdates(updated)
                             }}
+                            placeholder="0"
                             className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg font-mono font-bold"
                           />
                         </div>

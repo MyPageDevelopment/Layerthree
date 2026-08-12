@@ -59,6 +59,11 @@ export class ProductsController {
     return this.productsService.getLowStock();
   }
 
+  @Get('next-sku')
+  getNextSku(@Query('category') category?: string) {
+    return this.productsService.getNextSku(category);
+  }
+
   @Get('audit/all')
   @Roles('SUPER_ADMIN', 'GERENTE', 'BODEGUERO')
   async getAllAudits(

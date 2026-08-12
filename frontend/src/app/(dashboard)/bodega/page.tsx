@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import api from '@/lib/api'
 import { isAdmin, canManageInventory } from '@/lib/auth'
 import type { Product, Movement, ProductCategory } from '@/types'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import LoadingOverlay from '@/components/LoadingOverlay'
 import SearchableProductSelect from '@/components/SearchableProductSelect'
+import Toast, { ToastMessage } from '@/components/Toast'
 
 type TabType = 'dashboard' | 'products' | 'movements'
 type DateFilter = 'day' | 'month' | 'year' | 'all'
@@ -17,13 +18,25 @@ export default function BodegaPage() {
   const [movements, setMovements] = useState<Movement[]>([])
   const [loading, setLoading] = useState(true)
 
+  // Notificaciones Toast y Loading Overlay
+  const [toast, setToast] = useState<ToastMessage | null>(null)
+  const [loadingOverlay, setLoadingOverlay] = useState<{ isOpen: boolean; message?: string }>({ isOpen: false })
+
+  const showToast = (type: 'success' | 'error' | 'warning' | 'info', message: string, title?: string) => {
+    setToast({ type, message, title })
+  }
+  const startLoading = (message: string) => setLoadingOverlay({ isOpen: true, message })
+  const stopLoading = () => setLoadingOverlay({ isOpen: false })
+
   // Filtros Dashboard
   const [dateFilter, setDateFilter] = useState<DateFilter>('all')
   const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('en-CA'))
 
-  // Búsqueda y Filtro Productos
+  // Búsqueda y Filtros Productos
   const [searchTerm, setSearchTerm] = useState('')
   const [stockFilter, setStockFilter] = useState<'all' | 'low-stock'>('all')
+  const [categoryFilter, setCategoryFilter] = useState<string>('ALL')
+  const [subcategoryFilter, setSubcategoryFilter] = useState<string>('ALL')
 
   // Modales y Dialogs
   const [showProductModal, setShowProductModal] = useState(false)
@@ -122,9 +135,48 @@ export default function BodegaPage() {
     setQuickListPrice(p.listPrice || 0)
   }
 
+  // Auto SKU Generator
+  const fetchNextSku = async (category: string) => {
+    try {
+      const res = await api.get<{ nextSku: string }>(`/products/next-sku?category=${category}`)
+      if (res.data?.nextSku) {
+        setFormData(prev => ({ ...prev, sku: res.data.nextSku }))
+      }
+    } catch (err) {
+      console.error('Error al obtener siguiente SKU:', err)
+    }
+  }
+
+  const handleOpenCreateModal = async () => {
+    setEditingProduct(null)
+    const defaultCat: ProductCategory = 'RED'
+    setFormData({
+      sku: 'Generando...',
+      name: '',
+      description: '',
+      category: defaultCat,
+      subcategory: '',
+      stock: 0,
+      minStock: 5,
+      unitPrice: 0,
+      unit: 'UN',
+      unitCost: 0,
+      listPrice: 0,
+      supplierCode: '',
+    })
+    setShowProductModal(true)
+    fetchNextSku(defaultCat)
+  }
+
+  const handleCategoryChangeInForm = (newCategory: ProductCategory) => {
+    setFormData(prev => ({ ...prev, category: newCategory }))
+    fetchNextSku(newCategory)
+  }
+
   const handleSaveQuickEdit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!quickEditProduct) return
+    startLoading('Actualizando datos del producto...')
     try {
       await api.patch(`/products/${quickEditProduct.id}`, {
         unitCost: quickUnitCost,
@@ -134,56 +186,83 @@ export default function BodegaPage() {
         listPrice: quickListPrice,
       })
       setQuickEditProduct(null)
+      showToast('success', 'Producto actualizado exitosamente', 'Edición Rápida')
       loadData()
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Error al actualizar producto')
+      showToast('error', err.response?.data?.message || 'Error al actualizar producto')
+    } finally {
+      stopLoading()
     }
   }
 
-  // Filtrado Productos
-  const filteredProducts = products.filter((p) => {
-    if (stockFilter === 'low-stock' && p.stock >= p.minStock) return false
-    if (searchTerm.trim()) {
-      const term = searchTerm.toLowerCase()
-      return (
-        p.sku.toLowerCase().includes(term) ||
-        p.name.toLowerCase().includes(term) ||
-        (p.description?.toLowerCase().includes(term) || false) ||
-        p.category.toLowerCase().includes(term) ||
-        (p.subcategory?.toLowerCase().includes(term) || false) ||
-        (p.supplierCode?.toLowerCase().includes(term) || false)
-      )
-    }
-    return true
-  })
+  // Subcategorías disponibles dinámicas según filtro
+  const availableSubcategories = useMemo(() => {
+    const set = new Set<string>()
+    products.forEach((p) => {
+      if (categoryFilter === 'ALL' || p.category === categoryFilter) {
+        if (p.subcategory && p.subcategory.trim()) {
+          set.add(p.subcategory.trim())
+        }
+      }
+    })
+    return Array.from(set).sort()
+  }, [products, categoryFilter])
+
+  // Búsqueda inteligente multi-palabra y filtrado de Productos
+  const filteredProducts = useMemo(() => {
+    return products.filter((p) => {
+      if (stockFilter === 'low-stock' && p.stock >= p.minStock) return false
+      if (categoryFilter !== 'ALL' && p.category !== categoryFilter) return false
+      if (subcategoryFilter !== 'ALL' && p.subcategory !== subcategoryFilter) return false
+
+      if (searchTerm.trim()) {
+        const searchTokens = searchTerm.toLowerCase().trim().split(/\s+/).filter(Boolean)
+        const searchableText = `${p.sku} ${p.name} ${p.description || ''} ${p.category} ${p.subcategory || ''} ${p.supplierCode || ''}`.toLowerCase()
+
+        const matchesAllTokens = searchTokens.every((token) => searchableText.includes(token))
+        if (!matchesAllTokens) return false
+      }
+
+      return true
+    })
+  }, [products, stockFilter, categoryFilter, subcategoryFilter, searchTerm])
 
   // Handlers Productos
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault()
+    startLoading(editingProduct ? 'Actualizando producto...' : 'Creando nuevo producto...')
     try {
       if (editingProduct) {
         await api.patch(`/products/${editingProduct.id}`, formData)
+        showToast('success', 'Producto modificado exitosamente', 'Inventario')
       } else {
         await api.post('/products', formData)
+        showToast('success', 'Nuevo producto agregado exitosamente', 'Inventario')
       }
       setShowProductModal(false)
       resetProductForm()
       loadData()
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Error al guardar producto')
+      showToast('error', error.response?.data?.message || 'Error al guardar producto')
+    } finally {
+      stopLoading()
     }
   }
 
   const handleDeleteProduct = async () => {
     if (!productToDelete) return
+    startLoading('Eliminando producto del sistema...')
     try {
       await api.delete(`/products/${productToDelete}`)
+      showToast('success', 'Producto eliminado de la base de datos', 'Inventario')
       setShowConfirmDialog(false)
       setProductToDelete(null)
       loadData()
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Error al eliminar producto')
+      showToast('error', error.response?.data?.message || 'Error al eliminar producto')
       setShowConfirmDialog(false)
+    } finally {
+      stopLoading()
     }
   }
 
@@ -195,7 +274,7 @@ export default function BodegaPage() {
       category: 'EQUIPOS',
       subcategory: '',
       stock: 0,
-      minStock: 0,
+      minStock: 5,
       unitPrice: 0,
       unit: 'UN',
       unitCost: 0,
@@ -211,10 +290,11 @@ export default function BodegaPage() {
 
     const validItems = movementItems.filter(item => item.productId && item.quantity > 0)
     if (validItems.length === 0) {
-      alert('Debes seleccionar al menos un producto con cantidad mayor a 0')
+      showToast('warning', 'Debes seleccionar al menos un producto con cantidad mayor a 0')
       return
     }
 
+    startLoading('Registrando movimientos de inventario...')
     try {
       if (validItems.length === 1) {
         await api.post('/movements', {
@@ -235,6 +315,7 @@ export default function BodegaPage() {
         })
       }
 
+      showToast('success', 'Movimiento de inventario registrado correctamente', 'Bodega')
       setShowMovementModal(false)
       setMovementItems([{ productId: '', quantity: 1 }])
       setMovementNotes('')
@@ -242,12 +323,15 @@ export default function BodegaPage() {
       setMovementVanId('')
       loadData()
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Error al registrar movimientos de inventario')
+      showToast('error', error.response?.data?.message || 'Error al registrar movimientos')
+    } finally {
+      stopLoading()
     }
   }
 
   // Reportes
   const downloadReport = async (type: 'inventory' | 'movements') => {
+    startLoading('Generando reporte Excel...')
     try {
       let url = `/reports/${type}`
       if (type === 'movements' && dateFilter !== 'all') {
@@ -261,8 +345,11 @@ export default function BodegaPage() {
       document.body.appendChild(link)
       link.click()
       link.remove()
+      showToast('info', 'Reporte Excel generado y descargado', 'Reportes')
     } catch (err) {
-      alert('Error al descargar el reporte')
+      showToast('error', 'Error al generar el reporte Excel')
+    } finally {
+      stopLoading()
     }
   }
 
@@ -283,7 +370,6 @@ export default function BodegaPage() {
           const utf8Decoder = new TextDecoder('utf-8', { fatal: true })
           text = utf8Decoder.decode(bytes)
         } catch {
-          // If UTF-8 fails due to single-byte non-ASCII chars (Macintosh or Windows-1252)
           let macScore = 0
           let winScore = 0
           for (let i = 0; i < bytes.length; i++) {
@@ -319,14 +405,16 @@ export default function BodegaPage() {
 
   const handleImportCsvSubmit = async () => {
     if (!csvTextContent.trim()) {
-      alert('Por favor selecciona o pega el contenido de un archivo CSV')
+      showToast('warning', 'Por favor selecciona o pega el contenido de un archivo CSV')
       return
     }
     setCsvUploading(true)
     setCsvMessage('')
+    startLoading('Procesando e importando catálogo CSV...')
     try {
       const res = await api.post('/products/import-csv', { csvText: csvTextContent })
       setCsvMessage(res.data.message || 'Importación realizada con éxito')
+      showToast('success', res.data.message || 'Importación realizada con éxito', 'Importación CSV')
       loadData()
       setTimeout(() => {
         setShowCsvModal(false)
@@ -334,9 +422,10 @@ export default function BodegaPage() {
         setCsvMessage('')
       }, 2000)
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Error al importar archivo CSV')
+      showToast('error', err.response?.data?.message || 'Error al importar archivo CSV')
     } finally {
       setCsvUploading(false)
+      stopLoading()
     }
   }
 
@@ -559,59 +648,106 @@ export default function BodegaPage() {
       {/* TAB 2: PRODUCTOS */}
       {activeTab === 'products' && (
         <div className="space-y-4 sm:space-y-6">
-          <div className="flex flex-col sm:flex-row justify-between items-center gap-3 sm:gap-4">
-            <div className="flex-1 w-full flex flex-col sm:flex-row items-center gap-2 sm:gap-3">
-              <input
-                type="text"
-                placeholder="Buscar por SKU, nombre, categoría..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full sm:w-80 px-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs sm:text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <button
-                onClick={() => setStockFilter(stockFilter === 'all' ? 'low-stock' : 'all')}
-                className={`w-full sm:w-auto px-3 py-2 rounded-xl text-xs font-semibold border transition ${
-                  stockFilter === 'low-stock'
-                    ? 'bg-red-100 dark:bg-red-900/60 border-red-300 dark:border-red-700 text-red-700 dark:text-red-300'
-                    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                {stockFilter === 'low-stock' ? 'Filtro: Solo Stock Bajo' : 'Ver Solo Stock Bajo'}
-              </button>
+          {/* Header Barra de Acciones */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <div>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white">Catálogo de Productos</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Total: {filteredProducts.length} de {products.length} productos registrados</p>
             </div>
+
             {canManage && (
-              <div className="flex items-center gap-2 w-full sm:w-auto">
+              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto max-w-full">
                 <button
                   onClick={handleDownloadCsvTemplate}
-                  className="w-full sm:w-auto px-3.5 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs sm:text-sm font-semibold shadow transition whitespace-nowrap flex items-center justify-center gap-1.5"
-                  title="Descargar plantilla CSV vacía para carga masiva"
+                  className="flex-1 sm:flex-initial px-3 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs font-semibold shadow transition whitespace-nowrap flex items-center justify-center gap-1.5"
+                  title="Descargar plantilla CSV vacía"
                 >
-                  <span>📥</span> Descargar Planilla Base
+                  <span>📥</span> Planilla Base
                 </button>
                 <button
                   onClick={handleExportCsvBackup}
-                  className="w-full sm:w-auto px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs sm:text-sm font-semibold shadow transition whitespace-nowrap flex items-center justify-center gap-1.5"
-                  title="Exportar inventario actual en formato CSV re-importable"
+                  className="flex-1 sm:flex-initial px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold shadow transition whitespace-nowrap flex items-center justify-center gap-1.5"
+                  title="Exportar copia de respaldo CSV"
                 >
-                  <span>📤</span> Exportar CSV (Backup)
+                  <span>📤</span> Backup CSV
                 </button>
                 <button
                   onClick={() => setShowCsvModal(true)}
-                  className="w-full sm:w-auto px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs sm:text-sm font-semibold shadow transition whitespace-nowrap flex items-center justify-center gap-1.5"
+                  className="flex-1 sm:flex-initial px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow transition whitespace-nowrap flex items-center justify-center gap-1.5"
                 >
                   <span>📄</span> Importar CSV
                 </button>
                 <button
-                  onClick={() => {
-                    resetProductForm()
-                    setShowProductModal(true)
-                  }}
-                  className="w-full sm:w-auto px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs sm:text-sm font-semibold shadow transition whitespace-nowrap"
+                  onClick={handleOpenCreateModal}
+                  className="w-full sm:w-auto px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs sm:text-sm font-semibold shadow transition flex items-center justify-center gap-1.5"
                 >
-                  + Nuevo Producto
+                  <span>+</span> Nuevo Producto
                 </button>
               </div>
             )}
+          </div>
+
+          {/* Barra de Filtros y Búsqueda Inteligente Multi-palabra */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 sm:p-4 shadow-sm space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+              {/* Buscador inteligente */}
+              <div className="relative sm:col-span-2 lg:col-span-1">
+                <input
+                  type="text"
+                  placeholder="Buscar SKU, nombre (ej: modulo tx)..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-8 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <span className="absolute left-2.5 top-2.5 text-slate-400 text-xs">🔍</span>
+              </div>
+
+              {/* Filtro Categoría */}
+              <div>
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => {
+                    setCategoryFilter(e.target.value)
+                    setSubcategoryFilter('ALL')
+                  }}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm text-slate-900 dark:text-white font-medium"
+                >
+                  <option value="ALL">Todas las Categorías</option>
+                  <option value="RED">Redes y Cableado (RED)</option>
+                  <option value="CANALIZACION">Canalización (EMT/PVC/BPC)</option>
+                  <option value="FIBRA_OPTICA">Fibra Óptica (F.O)</option>
+                  <option value="ELECTRICIDAD">Electricidad e Iluminación</option>
+                  <option value="EQUIPOS">Equipos y Herramientas</option>
+                  <option value="INSUMOS">Insumos y Varios</option>
+                </select>
+              </div>
+
+              {/* Filtro Subcategoría */}
+              <div>
+                <select
+                  value={subcategoryFilter}
+                  onChange={(e) => setSubcategoryFilter(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm text-slate-900 dark:text-white font-medium"
+                >
+                  <option value="ALL">Todas las Subcategorías</option>
+                  {availableSubcategories.map((sub) => (
+                    <option key={sub} value={sub}>{sub}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Filtro Estado Stock */}
+              <div>
+                <select
+                  value={stockFilter}
+                  onChange={(e) => setStockFilter(e.target.value as any)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm font-semibold text-slate-900 dark:text-white"
+                >
+                  <option value="all">Todo el Inventario</option>
+                  <option value="low-stock">⚠️ Solo Stock Bajo (&lt; mín)</option>
+                </select>
+              </div>
+            </div>
           </div>
 
           {/* MOBILE CARDS VIEW (For small screens) */}
@@ -934,7 +1070,7 @@ export default function BodegaPage() {
                 <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Categoría</label>
                 <select
                   value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value as ProductCategory })}
+                  onChange={(e) => handleCategoryChangeInForm(e.target.value as ProductCategory)}
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm"
                 >
                   <option value="EQUIPOS">EQUIPOS</option>
@@ -1185,8 +1321,10 @@ export default function BodegaPage() {
                   min="0"
                   step="0.01"
                   required
-                  value={quickUnitCost}
-                  onChange={(e) => setQuickUnitCost(parseFloat(e.target.value) || 0)}
+                  value={quickUnitCost === 0 ? '' : quickUnitCost}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setQuickUnitCost(e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
+                  placeholder="0"
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono font-bold"
                 />
                 <p className="text-[11px] text-slate-400 mt-1">Este monto calcula el Costo Total en Bodega.</p>
@@ -1201,8 +1339,10 @@ export default function BodegaPage() {
                     type="number"
                     min="0"
                     required
-                    value={quickStock}
-                    onChange={(e) => setQuickStock(parseInt(e.target.value, 10) || 0)}
+                    value={quickStock === 0 ? '' : quickStock}
+                    onFocus={(e) => e.target.select()}
+                    onChange={(e) => setQuickStock(e.target.value === '' ? 0 : parseInt(e.target.value, 10) || 0)}
+                    placeholder="0"
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono"
                   />
                 </div>
@@ -1231,8 +1371,10 @@ export default function BodegaPage() {
                 <input
                   type="number"
                   min="0"
-                  value={quickListPrice}
-                  onChange={(e) => setQuickListPrice(parseFloat(e.target.value) || 0)}
+                  value={quickListPrice === 0 ? '' : quickListPrice}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setQuickListPrice(e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
+                  placeholder="0"
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono"
                 />
               </div>
@@ -1336,7 +1478,8 @@ export default function BodegaPage() {
         </div>
       )}
 
-      <LoadingOverlay isOpen={csvUploading} message="Procesando e importando catálogo CSV..." />
+      <LoadingOverlay isOpen={loadingOverlay.isOpen || csvUploading} message={loadingOverlay.message || "Procesando..."} />
+      <Toast toast={toast} onClose={() => setToast(null)} />
 
       {/* CONFIRM DIALOG ELIMINAR */}
       <ConfirmDialog
