@@ -238,6 +238,30 @@ export class ProductsService {
     `;
   }
 
+  private fixEncodingString(str: string): string {
+    if (!str) return '';
+
+    // Check if string contains Macintosh char codes (e.g. 0x97 for ó, 0x87 for á, 0x92 for í, 0x96 for ñ)
+    let hasMacChar = false;
+    const bytes: number[] = [];
+    for (let i = 0; i < str.length; i++) {
+      const code = str.charCodeAt(i);
+      bytes.push(code);
+      if (code === 0x97 || code === 0x87 || code === 0x92 || code === 0x96 || code === 0x8e || code === 0x9c) {
+        hasMacChar = true;
+      }
+    }
+
+    if (hasMacChar) {
+      try {
+        const uint8 = new Uint8Array(bytes);
+        return new TextDecoder('macintosh').decode(uint8);
+      } catch (e) {}
+    }
+
+    return str;
+  }
+
   async importCsvData(csvText: string, user?: any) {
     if (!csvText || typeof csvText !== 'string' || !csvText.trim()) {
       return {
@@ -249,15 +273,14 @@ export class ProductsService {
       };
     }
 
-    const lines = csvText.split(/\r?\n/);
-    const parsedItems: any[] = [];
-
-    const parseCsvLine = (line: string): string[] => {
-      // Auto-detect delimiter: compare count of ;, ,, and \t
+    // Full multi-line CSV Tokenizer: handles quoted fields with newlines without breaking quote state
+    const parseCsvText = (text: string): string[][] => {
       let delimiter = ',';
-      const semiCount = (line.match(/;/g) || []).length;
-      const commaCount = (line.match(/,/g) || []).length;
-      const tabCount = (line.match(/\t/g) || []).length;
+      const firstLineEnd = text.indexOf('\n');
+      const sample = firstLineEnd !== -1 ? text.substring(0, firstLineEnd) : text;
+      const semiCount = (sample.match(/;/g) || []).length;
+      const commaCount = (sample.match(/,/g) || []).length;
+      const tabCount = (sample.match(/\t/g) || []).length;
 
       if (semiCount > commaCount && semiCount > tabCount) {
         delimiter = ';';
@@ -265,27 +288,46 @@ export class ProductsService {
         delimiter = '\t';
       }
 
-      const result: string[] = [];
-      let current = '';
+      const records: string[][] = [];
+      let currentRecord: string[] = [];
+      let currentField = '';
       let inQuotes = false;
-      for (let i = 0; i < line.length; i++) {
-        const char = line[i];
+
+      for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        const nextChar = text[i + 1];
+
         if (char === '"') {
-          if (inQuotes && line[i + 1] === '"') {
-            current += '"';
-            i++;
+          if (inQuotes && nextChar === '"') {
+            currentField += '"';
+            i++; // skip escaped quote
           } else {
             inQuotes = !inQuotes;
           }
         } else if (char === delimiter && !inQuotes) {
-          result.push(current.trim());
-          current = '';
+          currentRecord.push(currentField.trim());
+          currentField = '';
+        } else if ((char === '\r' || char === '\n') && !inQuotes) {
+          if (char === '\r' && nextChar === '\n') i++;
+          currentRecord.push(currentField.trim());
+          if (currentRecord.some((f) => f.length > 0)) {
+            records.push(currentRecord);
+          }
+          currentRecord = [];
+          currentField = '';
         } else {
-          current += char;
+          currentField += char;
         }
       }
-      result.push(current.trim());
-      return result;
+
+      if (currentField || currentRecord.length > 0) {
+        currentRecord.push(currentField.trim());
+        if (currentRecord.some((f) => f.length > 0)) {
+          records.push(currentRecord);
+        }
+      }
+
+      return records;
     };
 
     const mapCategory = (catName: string): { category: any; subcategory: string } => {
@@ -327,15 +369,14 @@ export class ProductsService {
       return { category: 'INSUMOS', subcategory: catName };
     };
 
+    const records = parseCsvText(csvText);
+    const parsedItems: any[] = [];
     let currentCategory: any = 'INSUMOS';
     let currentSubcategory: string | null = null;
     const knownHeaderTexts = ['PRODUCTOS', 'CANTIDAD', 'TIPO', 'PROVEEDOR', 'CLIENTE', 'PLANILLA', 'MAY-25'];
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-
-      const cols = parseCsvLine(line);
+    for (let i = 0; i < records.length; i++) {
+      const cols = records[i];
       if (!cols || cols.length === 0) continue;
 
       // Skip header rows
@@ -346,24 +387,34 @@ export class ProductsService {
         continue;
       }
 
-      // Check if it's the structured format (inventario_con_costos_y_formulas.csv or similar)
-      if (cols.length >= 5 && cols[0] && cols[0].length >= 2 && cols[1] && cols[1].length >= 2) {
-        // Enforce max 100 characters for SKU to stay well within MySQL limits
-        let rawSku = cols[0].trim().substring(0, 100);
-        let rawName = cols[1].trim().substring(0, 255);
-        const rawCategoryStr = cols[2] || '';
-        const rawSubcat = (cols[3] || '').substring(0, 100);
-        const rawQty = parseFloat(cols[4]) || 0;
-        const rawUnitType = (cols[5] || '').toUpperCase().trim().substring(0, 20);
-        const rawUnitCost = parseFloat(cols[6]) || 0;
-        const rawListPrice = parseFloat(cols[8]) || 0;
-        const rawSupplierCode = cols[10] ? cols[10].trim().substring(0, 100) : null;
-        const obs = cols[11] || '';
+      let rawSku = this.fixEncodingString((cols[0] || '').trim());
+      let rawName = this.fixEncodingString((cols[1] || '').trim());
+
+      // If both SKU and Name are empty (e.g. blank lines in CSV), skip
+      if (!rawSku && !rawName) continue;
+
+      const rawCategoryStr = this.fixEncodingString(cols[2] || '');
+      const rawSubcat = this.fixEncodingString(cols[3] || '').substring(0, 100);
+      const rawQty = parseFloat(cols[4]) || 0;
+      const rawUnitType = this.fixEncodingString(cols[5] || '').toUpperCase().trim().substring(0, 20);
+      const rawUnitCost = parseFloat(cols[6]) || 0;
+      const rawListPrice = parseFloat(cols[8]) || 0;
+      const rawSupplierCode = cols[10] ? this.fixEncodingString(cols[10].trim()).substring(0, 100) : null;
+      const obs = this.fixEncodingString(cols[11] || '');
+
+      // Check if it's structured format (with SKU or Name)
+      if (cols.length >= 2 && (rawSku || rawName)) {
+        if (!rawSku && rawName) {
+          const slug = rawName.toUpperCase().replace(/[^A-Z0-9]/g, '-').replace(/-+/g, '-').substring(0, 35);
+          rawSku = `SKU-${slug}-${i}`;
+        }
+
+        rawSku = rawSku.substring(0, 100);
+        rawName = rawName.substring(0, 255);
 
         const mappedCat = mapCategory(rawCategoryStr);
         const stock = Math.max(0, Math.round(rawQty));
         
-        // Enforce UTP cables unit to MTS
         const isUtp = rawName.toUpperCase().includes('UTP') || rawSku.toUpperCase().includes('UTP');
         const unit = isUtp ? 'MTS' : (rawUnitType || 'UN');
 
@@ -407,14 +458,14 @@ export class ProductsService {
         }
       }
 
-      const rawName = cols[2] ? cols[2].trim().substring(0, 255) : '';
-      if (!rawName || rawName.length < 2) continue;
+      const legacyName = cols[2] ? this.fixEncodingString(cols[2].trim()).substring(0, 255) : '';
+      if (!legacyName || legacyName.length < 2) continue;
 
-      const upperName = rawName.toUpperCase();
+      const upperName = legacyName.toUpperCase();
       if (knownHeaderTexts.some((h) => upperName.includes(h))) continue;
 
-      const subDetail = cols[3] || '';
-      const unitType = (cols[4] || '').toUpperCase().trim().substring(0, 20);
+      const subDetail = cols[3] ? this.fixEncodingString(cols[3].trim()) : '';
+      const unitType = cols[4] ? this.fixEncodingString(cols[4]).toUpperCase().trim().substring(0, 20) : '';
 
       let totalStock = 0;
       for (let c = 5; c < cols.length; c++) {
@@ -424,14 +475,14 @@ export class ProductsService {
         }
       }
 
-      const slug = (rawName + ' ' + subDetail)
+      const slug = (legacyName + ' ' + subDetail)
         .toUpperCase()
         .replace(/[^A-Z0-9]/g, '-')
         .replace(/-+/g, '-')
         .substring(0, 35);
       const sku = `SKU-${slug}-${i}`.substring(0, 100);
 
-      const fullName = (subDetail ? `${rawName} (${subDetail})` : rawName).substring(0, 255);
+      const fullName = (subDetail ? `${legacyName} (${subDetail})` : legacyName).substring(0, 255);
       const description = unitType ? `Tipo: ${unitType}` : undefined;
       const isUtp = fullName.toUpperCase().includes('UTP') || sku.toUpperCase().includes('UTP');
       const unit = isUtp ? 'MTS' : (unitType || 'UN');

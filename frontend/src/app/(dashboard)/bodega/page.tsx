@@ -274,9 +274,46 @@ export default function BodegaPage() {
     if (file) {
       const reader = new FileReader()
       reader.onload = (evt) => {
-        setCsvTextContent(evt.target?.result as string || '')
+        const arrayBuffer = evt.target?.result as ArrayBuffer
+        if (!arrayBuffer) return
+
+        const bytes = new Uint8Array(arrayBuffer)
+        let text = ''
+        try {
+          const utf8Decoder = new TextDecoder('utf-8', { fatal: true })
+          text = utf8Decoder.decode(bytes)
+        } catch {
+          // If UTF-8 fails due to single-byte non-ASCII chars (Macintosh or Windows-1252)
+          let macScore = 0
+          let winScore = 0
+          for (let i = 0; i < bytes.length; i++) {
+            const b = bytes[i]
+            if (b === 0x87 || b === 0x97 || b === 0x92 || b === 0x96 || b === 0x8e || b === 0x9c) {
+              macScore++
+            }
+            if (b === 0xe1 || b === 0xf3 || b === 0xed || b === 0xf1 || b === 0xe9 || b === 0xfa) {
+              winScore++
+            }
+          }
+
+          if (macScore >= winScore && macScore > 0) {
+            try {
+              text = new TextDecoder('macintosh').decode(bytes)
+            } catch {
+              text = new TextDecoder('windows-1252').decode(bytes)
+            }
+          } else {
+            try {
+              text = new TextDecoder('windows-1252').decode(bytes)
+            } catch {
+              text = new TextDecoder('latin1').decode(bytes)
+            }
+          }
+        }
+
+        setCsvTextContent(text)
       }
-      reader.readAsText(file)
+      reader.readAsArrayBuffer(file)
     }
   }
 
