@@ -1,8 +1,9 @@
-import { IsString, IsOptional, IsInt, Min, IsNumber, IsEnum } from 'class-validator';
+import { IsString, IsOptional, IsInt, Min, IsNumber, IsEnum, MaxLength } from 'class-validator';
 import { ProductCategory } from '@prisma/client';
 
 export class CreateProductDto {
   @IsString()
+  @MaxLength(100)
   sku: string;
 
   @IsString()

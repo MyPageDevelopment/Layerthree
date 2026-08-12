@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ProductAuditService } from './product-audit.service';
 import { CreateProductDto } from '../dto/create-product.dto';
@@ -6,6 +6,8 @@ import { UpdateProductDto } from '../dto/update-product.dto';
 
 @Injectable()
 export class ProductsService {
+  private readonly logger = new Logger(ProductsService.name);
+
   constructor(
     private prisma: PrismaService,
     private auditService: ProductAuditService,
@@ -237,18 +239,45 @@ export class ProductsService {
   }
 
   async importCsvData(csvText: string, user?: any) {
-    const lines = (csvText || '').split(/\r?\n/);
+    if (!csvText || typeof csvText !== 'string' || !csvText.trim()) {
+      return {
+        message: 'El archivo CSV está vacío o no contiene datos válidos.',
+        totalParsed: 0,
+        createdCount: 0,
+        updatedCount: 0,
+        failedCount: 0,
+      };
+    }
+
+    const lines = csvText.split(/\r?\n/);
     const parsedItems: any[] = [];
 
     const parseCsvLine = (line: string): string[] => {
+      // Auto-detect delimiter: compare count of ;, ,, and \t
+      let delimiter = ',';
+      const semiCount = (line.match(/;/g) || []).length;
+      const commaCount = (line.match(/,/g) || []).length;
+      const tabCount = (line.match(/\t/g) || []).length;
+
+      if (semiCount > commaCount && semiCount > tabCount) {
+        delimiter = ';';
+      } else if (tabCount > commaCount && tabCount > semiCount) {
+        delimiter = '\t';
+      }
+
       const result: string[] = [];
       let current = '';
       let inQuotes = false;
       for (let i = 0; i < line.length; i++) {
         const char = line[i];
         if (char === '"') {
-          inQuotes = !inQuotes;
-        } else if (char === ',' && !inQuotes) {
+          if (inQuotes && line[i + 1] === '"') {
+            current += '"';
+            i++;
+          } else {
+            inQuotes = !inQuotes;
+          }
+        } else if (char === delimiter && !inQuotes) {
           result.push(current.trim());
           current = '';
         } else {
@@ -318,16 +347,17 @@ export class ProductsService {
       }
 
       // Check if it's the structured format (inventario_con_costos_y_formulas.csv or similar)
-      if (cols.length >= 5 && cols[0] && cols[0].length >= 3 && cols[1] && cols[1].length >= 2) {
-        const rawSku = cols[0];
-        const rawName = cols[1];
+      if (cols.length >= 5 && cols[0] && cols[0].length >= 2 && cols[1] && cols[1].length >= 2) {
+        // Enforce max 100 characters for SKU to stay well within MySQL limits
+        let rawSku = cols[0].trim().substring(0, 100);
+        let rawName = cols[1].trim().substring(0, 255);
         const rawCategoryStr = cols[2] || '';
-        const rawSubcat = cols[3] || '';
+        const rawSubcat = (cols[3] || '').substring(0, 100);
         const rawQty = parseFloat(cols[4]) || 0;
-        const rawUnitType = (cols[5] || '').toUpperCase().trim();
+        const rawUnitType = (cols[5] || '').toUpperCase().trim().substring(0, 20);
         const rawUnitCost = parseFloat(cols[6]) || 0;
         const rawListPrice = parseFloat(cols[8]) || 0;
-        const rawSupplierCode = cols[10] || null;
+        const rawSupplierCode = cols[10] ? cols[10].trim().substring(0, 100) : null;
         const obs = cols[11] || '';
 
         const mappedCat = mapCategory(rawCategoryStr);
@@ -377,14 +407,14 @@ export class ProductsService {
         }
       }
 
-      const rawName = cols[2];
+      const rawName = cols[2] ? cols[2].trim().substring(0, 255) : '';
       if (!rawName || rawName.length < 2) continue;
 
       const upperName = rawName.toUpperCase();
       if (knownHeaderTexts.some((h) => upperName.includes(h))) continue;
 
       const subDetail = cols[3] || '';
-      const unitType = (cols[4] || '').toUpperCase().trim();
+      const unitType = (cols[4] || '').toUpperCase().trim().substring(0, 20);
 
       let totalStock = 0;
       for (let c = 5; c < cols.length; c++) {
@@ -399,9 +429,9 @@ export class ProductsService {
         .replace(/[^A-Z0-9]/g, '-')
         .replace(/-+/g, '-')
         .substring(0, 35);
-      const sku = `SKU-${slug}-${i}`;
+      const sku = `SKU-${slug}-${i}`.substring(0, 100);
 
-      const fullName = subDetail ? `${rawName} (${subDetail})` : rawName;
+      const fullName = (subDetail ? `${rawName} (${subDetail})` : rawName).substring(0, 255);
       const description = unitType ? `Tipo: ${unitType}` : undefined;
       const isUtp = fullName.toUpperCase().includes('UTP') || sku.toUpperCase().includes('UTP');
       const unit = isUtp ? 'MTS' : (unitType || 'UN');
@@ -411,7 +441,7 @@ export class ProductsService {
         name: fullName,
         description,
         category: currentCategory,
-        subcategory: currentSubcategory,
+        subcategory: currentSubcategory ? currentSubcategory.substring(0, 100) : null,
         stock: totalStock,
         minStock: 5,
         unit,
@@ -424,84 +454,102 @@ export class ProductsService {
 
     let createdCount = 0;
     let updatedCount = 0;
+    let failedCount = 0;
+    const itemErrors: string[] = [];
     const userIdToRecord = user?.id || user?.userId;
 
-    for (const item of parsedItems) {
-      const existingBySkuOrName = await this.prisma.product.findFirst({
-        where: {
-          OR: [{ sku: item.sku }, { name: item.name }],
-        },
-      });
-
-      if (existingBySkuOrName) {
-        const diff = item.stock - existingBySkuOrName.stock;
-        const updatedProd = await this.prisma.product.update({
-          where: { id: existingBySkuOrName.id },
-          data: {
-            stock: item.stock,
-            unit: item.unit,
-            unitCost: item.unitCost > 0 ? item.unitCost : existingBySkuOrName.unitCost,
-            totalCost: item.stock * (item.unitCost > 0 ? item.unitCost : existingBySkuOrName.unitCost),
-            listPrice: item.listPrice > 0 ? item.listPrice : existingBySkuOrName.listPrice,
-            unitPrice: item.unitPrice > 0 ? item.unitPrice : existingBySkuOrName.unitPrice,
-            category: item.category,
-            subcategory: item.subcategory,
-            supplierCode: item.supplierCode || existingBySkuOrName.supplierCode,
-            description: item.description || existingBySkuOrName.description,
+    for (let idx = 0; idx < parsedItems.length; idx++) {
+      const item = parsedItems[idx];
+      try {
+        const existingBySkuOrName = await this.prisma.product.findFirst({
+          where: {
+            OR: [{ sku: item.sku }, { name: item.name }],
           },
         });
-        updatedCount++;
 
-        if (userIdToRecord && diff !== 0) {
-          await this.prisma.movement.create({
+        if (existingBySkuOrName) {
+          const diff = item.stock - existingBySkuOrName.stock;
+          const updatedProd = await this.prisma.product.update({
+            where: { id: existingBySkuOrName.id },
             data: {
-              productId: updatedProd.id,
-              type: diff > 0 ? 'ENTRY' : 'EXIT',
-              quantity: Math.abs(diff),
-              notes: `Actualización masiva por CSV (${diff > 0 ? '+' : ''}${diff})`,
-              userId: userIdToRecord,
+              stock: item.stock,
+              unit: item.unit,
+              unitCost: item.unitCost > 0 ? item.unitCost : existingBySkuOrName.unitCost,
+              totalCost: item.stock * (item.unitCost > 0 ? item.unitCost : existingBySkuOrName.unitCost),
+              listPrice: item.listPrice > 0 ? item.listPrice : existingBySkuOrName.listPrice,
+              unitPrice: item.unitPrice > 0 ? item.unitPrice : existingBySkuOrName.unitPrice,
+              category: item.category,
+              subcategory: item.subcategory,
+              supplierCode: item.supplierCode || existingBySkuOrName.supplierCode,
+              description: item.description || existingBySkuOrName.description,
             },
           });
+          updatedCount++;
+
+          if (userIdToRecord && diff !== 0) {
+            await this.prisma.movement.create({
+              data: {
+                productId: updatedProd.id,
+                type: diff > 0 ? 'ENTRY' : 'EXIT',
+                quantity: Math.abs(diff),
+                notes: `Actualización masiva por CSV (${diff > 0 ? '+' : ''}${diff})`,
+                userId: userIdToRecord,
+              },
+            });
+          }
+        } else {
+          const createdProd = await this.prisma.product.create({
+            data: item,
+          });
+          createdCount++;
+
+          if (userIdToRecord && item.stock > 0) {
+            await this.prisma.movement.create({
+              data: {
+                productId: createdProd.id,
+                type: 'ENTRY',
+                quantity: item.stock,
+                notes: `Carga inicial masiva desde CSV`,
+                userId: userIdToRecord,
+              },
+            });
+          }
         }
-      } else {
-        const createdProd = await this.prisma.product.create({
-          data: item,
-        });
-        createdCount++;
-
-        if (userIdToRecord && item.stock > 0) {
-          await this.prisma.movement.create({
-            data: {
-              productId: createdProd.id,
-              type: 'ENTRY',
-              quantity: item.stock,
-              notes: `Carga inicial masiva desde CSV`,
-              userId: userIdToRecord,
-            },
-          });
+      } catch (err: any) {
+        failedCount++;
+        const errorMsg = `Fila ${idx + 1} (${item.sku || item.name}): ${err.message || 'Error al guardar'}`;
+        this.logger.error(`Error importando item CSV: ${errorMsg}`, err.stack);
+        if (itemErrors.length < 10) {
+          itemErrors.push(errorMsg);
         }
       }
     }
 
-    if (user && parsedItems.length > 0) {
+    if (user && (createdCount > 0 || updatedCount > 0)) {
       await this.auditService.createAuditLog({
         productId: 'BULK_IMPORT',
         productSku: 'BULK_CSV',
-        productName: `Importación Masiva (${parsedItems.length} items)`,
+        productName: `Importación Masiva (${parsedItems.length} items procesados)`,
         action: 'CREATE',
         userId: userIdToRecord || 'SYSTEM',
         userName: user.name || user.email,
         userEmail: user.email,
         userRole: user.role,
-        changes: { createdCount, updatedCount, totalItems: parsedItems.length },
+        changes: { createdCount, updatedCount, failedCount, totalItems: parsedItems.length },
       });
     }
 
+    const message = failedCount > 0
+      ? `Importación realizada con advertencias. ${createdCount} creados, ${updatedCount} actualizados, ${failedCount} con error.`
+      : `Importación completada exitosamente. ${createdCount} creados, ${updatedCount} actualizados.`;
+
     return {
-      message: `Importación completada exitosamente. ${createdCount} creados, ${updatedCount} actualizados.`,
+      message,
       totalParsed: parsedItems.length,
       createdCount,
       updatedCount,
+      failedCount,
+      errors: itemErrors.length > 0 ? itemErrors : undefined,
     };
   }
 }
