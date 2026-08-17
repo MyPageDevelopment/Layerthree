@@ -34,7 +34,7 @@ export default function BodegaPage() {
 
   // Búsqueda y Filtros Productos
   const [searchTerm, setSearchTerm] = useState('')
-  const [stockFilter, setStockFilter] = useState<'all' | 'low-stock'>('all')
+  const [stockFilter, setStockFilter] = useState<'all' | 'available' | 'low-stock' | 'out-of-stock'>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL')
   const [subcategoryFilter, setSubcategoryFilter] = useState<string>('ALL')
 
@@ -215,7 +215,9 @@ export default function BodegaPage() {
   // Búsqueda inteligente multi-palabra y filtrado de Productos
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
+      if (stockFilter === 'available' && p.stock <= 0) return false
       if (stockFilter === 'low-stock' && p.stock >= p.minStock) return false
+      if (stockFilter === 'out-of-stock' && p.stock > 0) return false
       if (categoryFilter !== 'ALL' && p.category !== categoryFilter) return false
       if (subcategoryFilter !== 'ALL' && p.subcategory !== subcategoryFilter) return false
 
@@ -745,10 +747,12 @@ export default function BodegaPage() {
                 <select
                   value={stockFilter}
                   onChange={(e) => setStockFilter(e.target.value as any)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm font-semibold text-slate-900 dark:text-white"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="all">Todo el Inventario</option>
+                  <option value="all">📦 Todo el Inventario</option>
+                  <option value="available">✅ Solo Disponibles (Stock &gt; 0)</option>
                   <option value="low-stock">⚠️ Solo Stock Bajo (&lt; mín)</option>
+                  <option value="out-of-stock">❌ Agotados (Stock = 0)</option>
                 </select>
               </div>
             </div>
@@ -1039,56 +1043,97 @@ export default function BodegaPage() {
         </div>
       )}
 
-      {/* MODAL PRODUCTO */}
+      {/* MODAL PRODUCTO (CREAR / EDITAR MATERIAL) */}
       {showProductModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 max-w-lg w-full shadow-2xl">
-            <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-4">
-              {editingProduct ? 'Editar Producto' : 'Crear Nuevo Producto'}
-            </h3>
-            <form onSubmit={handleSaveProduct} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 max-w-lg w-full shadow-2xl space-y-4">
+            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <span>📦</span> {editingProduct ? 'Editar Material / Equipo' : 'Crear Nuevo Material / Equipo'}
+              </h3>
+              <button
+                onClick={() => setShowProductModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white text-xl"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveProduct} className="space-y-4 text-xs sm:text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">SKU</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">SKU *</label>
                   <input
                     type="text"
                     required
                     value={formData.sku}
                     onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono font-bold text-xs"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Nombre</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Nombre del Material *</label>
                   <input
                     type="text"
                     required
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm"
+                    placeholder="Ej: Cable UTP Cat6 / Huincha Aisladora"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs font-semibold"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Categoría</label>
-                <select
-                  value={formData.category}
-                  onChange={(e) => handleCategoryChangeInForm(e.target.value as ProductCategory)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm"
-                >
-                  <option value="EQUIPOS">EQUIPOS</option>
-                  <option value="RED">RED</option>
-                  <option value="FIBRA_OPTICA">FIBRA OPTICA</option>
-                  <option value="ELECTRICIDAD">ELECTRICIDAD</option>
-                  <option value="CANALIZACION">CANALIZACION</option>
-                  <option value="INSUMOS">INSUMOS</option>
-                </select>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Categoría *</label>
+                  <select
+                    value={formData.category}
+                    onChange={(e) => handleCategoryChangeInForm(e.target.value as ProductCategory)}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs font-bold"
+                  >
+                    <option value="EQUIPOS">EQUIPOS</option>
+                    <option value="RED">RED</option>
+                    <option value="FIBRA_OPTICA">FIBRA OPTICA</option>
+                    <option value="ELECTRICIDAD">ELECTRICIDAD</option>
+                    <option value="CANALIZACION">CANALIZACION</option>
+                    <option value="INSUMOS">INSUMOS</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Subcategoría (Opcional)</label>
+                  <input
+                    type="text"
+                    value={formData.subcategory}
+                    onChange={(e) => setFormData({ ...formData, subcategory: e.target.value })}
+                    placeholder="Ej: Ferretería, Cámaras, Herramientas"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Stock</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Unidad de Medida *
+                  </label>
+                  <select
+                    value={formData.unit || 'UN'}
+                    onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-blue-500/50 dark:border-blue-500/50 rounded-xl text-slate-900 dark:text-white text-xs font-extrabold focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="UN">UN (Unidades)</option>
+                    <option value="MTS">MTS (Metros - Cables/Fibra)</option>
+                    <option value="TIRA">TIRA (Tiras 3m)</option>
+                    <option value="ROLLOS">ROLLOS (Rollos)</option>
+                    <option value="CAJAS">CAJAS (Cajas)</option>
+                    <option value="KG">KG (Kilos)</option>
+                    <option value="PAR">PAR (Pares)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Stock Inicial</label>
                   <input
                     type="number"
                     min="0"
@@ -1096,11 +1141,12 @@ export default function BodegaPage() {
                     onFocus={(e) => e.target.select()}
                     onChange={(e) => setFormData({ ...formData, stock: e.target.value === '' ? 0 : Number(e.target.value) })}
                     placeholder="0"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs"
                   />
                 </div>
+
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Stock Mín.</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Stock Mínimo</label>
                   <input
                     type="number"
                     min="0"
@@ -1108,19 +1154,7 @@ export default function BodegaPage() {
                     onFocus={(e) => e.target.select()}
                     onChange={(e) => setFormData({ ...formData, minStock: e.target.value === '' ? 0 : Number(e.target.value) })}
                     placeholder="0"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Precio Unit. ($)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={formData.unitPrice === 0 ? '' : formData.unitPrice}
-                    onFocus={(e) => e.target.select()}
-                    onChange={(e) => setFormData({ ...formData, unitPrice: e.target.value === '' ? 0 : Number(e.target.value) })}
-                    placeholder="0"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs"
                   />
                 </div>
               </div>
@@ -1129,15 +1163,15 @@ export default function BodegaPage() {
                 <button
                   type="button"
                   onClick={() => setShowProductModal(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-sm font-semibold"
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs sm:text-sm font-semibold"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-semibold"
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs sm:text-sm font-bold shadow"
                 >
-                  Guardar
+                  Guardar Material
                 </button>
               </div>
             </form>
@@ -1147,28 +1181,35 @@ export default function BodegaPage() {
 
       {/* MODAL MOVIMIENTO MÚLTIPLE */}
       {showMovementModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 max-w-xl w-full shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <span>🔄</span> Registrar Movimiento de Stock (Múltiples Materiales)
-              </h3>
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6 max-w-3xl w-full shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
+              <div>
+                <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <span>🔄</span> Registrar Movimiento de Stock (Múltiples Materiales)
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Selecciona la operación e ingresa uno o varios productos/herramientas
+                </p>
+              </div>
               <button
                 onClick={() => setShowMovementModal(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-white text-xl"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white text-xl p-1"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleSaveMovement} className="space-y-4 text-xs sm:text-sm">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <form onSubmit={handleSaveMovement} className="space-y-4 text-xs sm:text-sm overflow-y-auto pr-1 flex-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 dark:bg-slate-800/40 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Tipo de Movimiento</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Tipo de Movimiento *
+                  </label>
                   <select
                     value={movementBatchType}
                     onChange={(e) => setMovementBatchType(e.target.value as 'ENTRY' | 'EXIT')}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs font-bold"
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs font-extrabold focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="ENTRY">📥 ENTRADA / Devolución a Bodega (+)</option>
                     <option value="EXIT">📤 SALIDA / Asignación (-) </option>
@@ -1176,11 +1217,13 @@ export default function BodegaPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Vehículo / Camioneta Asignada (Opcional)</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Vehículo / Camioneta Asignada (Opcional)
+                  </label>
                   <select
                     value={movementVanId}
                     onChange={(e) => setMovementVanId(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs font-semibold"
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs font-semibold"
                   >
                     <option value="">-- Sin Vehículo Asignado --</option>
                     {vans.map((v) => (
@@ -1190,106 +1233,202 @@ export default function BodegaPage() {
                     ))}
                   </select>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Código Proyecto (Opcional)</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Código Proyecto (Opcional)
+                  </label>
                   <input
                     type="text"
                     value={movementProjectId}
                     onChange={(e) => setMovementProjectId(e.target.value)}
                     placeholder="Ej: PROJ-102"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs"
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Observaciones / Motivo</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Observaciones / Motivo
+                  </label>
                   <input
                     type="text"
                     value={movementNotes}
                     onChange={(e) => setMovementNotes(e.target.value)}
                     placeholder="Ej: Recepción compra u Orden de despacho"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs"
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs"
                   />
                 </div>
               </div>
 
               {/* Dynamic Items List */}
-              <div className="space-y-3 pt-2 border-t border-slate-200 dark:border-slate-800">
-                <div className="flex justify-between items-center">
-                  <h4 className="font-bold text-xs text-slate-800 dark:text-slate-200">Materiales a Incluir en Movimiento</h4>
-                  <button
-                    type="button"
-                    onClick={() => setMovementItems([...movementItems, { productId: '', quantity: 1 }])}
-                    className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-2.5 py-1 rounded-lg transition"
-                  >
-                    + Agregar Otro Material
-                  </button>
+              <div className="space-y-3 pt-2">
+                <div className="flex flex-wrap justify-between items-center gap-2">
+                  <div>
+                    <h4 className="font-bold text-xs sm:text-sm text-slate-800 dark:text-slate-200">
+                      Materiales / Equipos a Incluir
+                    </h4>
+                    <p className="text-[11px] text-slate-400">
+                      Busca por nombre, SKU o filtra por categoría en el selector
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {movementItems.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setMovementItems([{ productId: '', quantity: 1 }])}
+                        className="text-xs text-slate-500 hover:text-red-500 px-2 py-1 transition"
+                      >
+                        Limpiar Filas
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setMovementItems([
+                          ...movementItems,
+                          { productId: '', quantity: 1 },
+                          { productId: '', quantity: 1 },
+                          { productId: '', quantity: 1 },
+                        ])
+                      }
+                      className="text-xs bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold px-2.5 py-1.5 rounded-xl transition"
+                    >
+                      + 3 Filas
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMovementItems([...movementItems, { productId: '', quantity: 1 }])}
+                      className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-xl transition shadow-sm"
+                    >
+                      + Agregar Material
+                    </button>
+                  </div>
                 </div>
 
-                <div className="space-y-3">
-                  {movementItems.map((item, idx) => (
-                    <div key={idx} className="flex gap-2 items-center bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                      <div className="flex-1">
-                        <SearchableProductSelect
-                          products={products}
-                          selectedProductId={item.productId}
-                          onSelectProduct={(p) => {
-                            const updated = [...movementItems]
-                            updated[idx].productId = p ? p.id : ''
-                            setMovementItems(updated)
-                          }}
-                          placeholder="🔍 Escribe para buscar por nombre, SKU..."
-                        />
-                      </div>
+                <div className="space-y-2.5">
+                  {movementItems.map((item, idx) => {
+                    const selectedP = products.find((p) => p.id === item.productId)
+                    const unitLabel = selectedP?.unit || 'UN'
+                    const isExcessExit =
+                      movementBatchType === 'EXIT' && selectedP && item.quantity > selectedP.stock
 
-                      <div className="w-24">
-                        <input
-                          type="number"
-                          min="1"
-                          required
-                          value={item.quantity === 0 ? '' : item.quantity}
-                          onFocus={(e) => e.target.select()}
-                          onChange={(e) => {
-                            const updated = [...movementItems]
-                            updated[idx].quantity = e.target.value === '' ? 0 : Number(e.target.value)
-                            setMovementItems(updated)
-                          }}
-                          placeholder="Cant."
-                          className="w-full px-2.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-center font-bold"
-                        />
-                      </div>
+                    return (
+                      <div
+                        key={idx}
+                        className={`p-3 rounded-2xl border transition ${
+                          isExcessExit
+                            ? 'bg-rose-50/70 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800'
+                            : selectedP
+                            ? 'bg-blue-50/40 dark:bg-slate-800/80 border-blue-200 dark:border-blue-900/50'
+                            : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800'
+                        }`}
+                      >
+                        <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center">
+                          <div className="flex-1 min-w-0">
+                            <SearchableProductSelect
+                              products={products}
+                              selectedProductId={item.productId}
+                              onSelectProduct={(p) => {
+                                const updated = [...movementItems]
+                                updated[idx].productId = p ? p.id : ''
+                                setMovementItems(updated)
+                              }}
+                              placeholder="🔍 Escribe para buscar por nombre, SKU o categoría..."
+                            />
+                          </div>
 
-                      {movementItems.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => setMovementItems(movementItems.filter((_, i) => i !== idx))}
-                          className="text-red-500 hover:text-red-700 font-bold px-1 text-sm"
-                        >
-                          ✕
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                          <div className="flex items-center gap-2 shrink-0">
+                            <div className="w-28 relative">
+                              <input
+                                type="number"
+                                min="1"
+                                required
+                                value={item.quantity === 0 ? '' : item.quantity}
+                                onFocus={(e) => e.target.select()}
+                                onChange={(e) => {
+                                  const updated = [...movementItems]
+                                  updated[idx].quantity = e.target.value === '' ? 0 : Number(e.target.value)
+                                  setMovementItems(updated)
+                                }}
+                                placeholder="Cant."
+                                className={`w-full px-3 py-2.5 bg-white dark:bg-slate-900 border rounded-xl text-xs text-center font-extrabold pr-8 ${
+                                  isExcessExit
+                                    ? 'border-rose-400 dark:border-rose-700 text-rose-600 dark:text-rose-400 focus:ring-2 focus:ring-rose-500'
+                                    : 'border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white'
+                                }`}
+                              />
+                              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 uppercase pointer-events-none">
+                                {unitLabel}
+                              </span>
+                            </div>
+
+                            {movementItems.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => setMovementItems(movementItems.filter((_, i) => i !== idx))}
+                                className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-rose-100 dark:hover:bg-rose-950/80 rounded-xl transition font-bold text-sm"
+                                title="Eliminar fila"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Stock feedback line */}
+                        {selectedP && (
+                          <div className="mt-2 pt-2 border-t border-slate-200/60 dark:border-slate-800/80 flex flex-wrap justify-between items-center text-[11px] px-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-blue-600 dark:text-blue-400 font-bold bg-blue-100 dark:bg-blue-950/80 px-1.5 py-0.5 rounded">
+                                {selectedP.sku}
+                              </span>
+                              <span className="text-slate-500 dark:text-slate-400">
+                                Categoría: <strong className="text-slate-700 dark:text-slate-200">{selectedP.category}</strong>
+                                {selectedP.subcategory && ` / ${selectedP.subcategory}`}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2 mt-1 sm:mt-0">
+                              <span className="text-slate-500 dark:text-slate-400">
+                                Stock Actual en Bodega:
+                              </span>
+                              <span className="font-extrabold text-slate-900 dark:text-white bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded-lg">
+                                {selectedP.stock} {unitLabel}
+                              </span>
+                              {isExcessExit && (
+                                <span className="font-bold text-rose-600 dark:text-rose-400 bg-rose-100 dark:bg-rose-950 px-2 py-0.5 rounded-lg border border-rose-300 dark:border-rose-800 animate-pulse">
+                                  ⚠️ Cantidad supera el stock actual ({selectedP.stock} {unitLabel})
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowMovementModal(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs sm:text-sm font-semibold"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs sm:text-sm font-semibold shadow"
-                >
-                  Guardar Movimiento ({movementItems.filter(i => i.productId).length})
-                </button>
+              <div className="flex justify-between items-center pt-4 border-t border-slate-200 dark:border-slate-800 shrink-0">
+                <span className="text-xs text-slate-400 font-medium">
+                  {movementItems.filter((i) => i.productId).length} de {movementItems.length} materiales seleccionados
+                </span>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowMovementModal(false)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs sm:text-sm font-semibold"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs sm:text-sm font-bold shadow-lg shadow-blue-600/20"
+                  >
+                    Guardar Movimiento ({movementItems.filter((i) => i.productId).length})
+                  </button>
+                </div>
               </div>
             </form>
           </div>

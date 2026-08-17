@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 
 export interface SearchableProductItem {
   id: string
@@ -10,6 +11,7 @@ export interface SearchableProductItem {
   subcategory?: string
   stock: number
   minStock?: number
+  unit?: string
 }
 
 interface SearchableProductSelectProps {
@@ -20,21 +22,53 @@ interface SearchableProductSelectProps {
   disabled?: boolean
 }
 
+// Strip accents and normalize for flexible search
+function normalizeText(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+}
+
 export default function SearchableProductSelect({
   products,
   selectedProductId,
   onSelectProduct,
-  placeholder = '🔍 Buscar material o herramienta por nombre, SKU o categoría...',
+  placeholder = '🔍 Buscar material por nombre, SKU o categoría...',
   disabled = false,
 }: SearchableProductSelectProps) {
   const [query, setQuery] = useState('')
   const [isOpen, setIsOpen] = useState(false)
+  const [selectedCategory, setSelectedCategory] = useState<string>('ALL')
+  const [onlyAvailable, setOnlyAvailable] = useState<boolean>(false)
+  const [highlightedIndex, setHighlightedIndex] = useState<number>(-1)
+  const [mounted, setMounted] = useState(false)
+  const [portalCoords, setPortalCoords] = useState<{ top: number; left: number; width: number; flipUp: boolean } | null>(null)
+
   const wrapperRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Find currently selected product
-  const selectedProduct = products.find((p) => p.id === selectedProductId)
+  const selectedProduct = useMemo(
+    () => products.find((p) => p.id === selectedProductId),
+    [products, selectedProductId]
+  )
 
-  // Update input text when selectedProduct changes
+  // Extract unique categories for filter chips
+  const availableCategories = useMemo(() => {
+    const cats = new Set<string>()
+    products.forEach((p) => {
+      if (p.category && p.category.trim()) cats.add(p.category.trim())
+    })
+    return Array.from(cats).sort()
+  }, [products])
+
+  // Synchronize text when selected item changes
   useEffect(() => {
     if (selectedProduct) {
       setQuery(`${selectedProduct.sku} - ${selectedProduct.name}`)
@@ -43,10 +77,42 @@ export default function SearchableProductSelect({
     }
   }, [selectedProductId, selectedProduct, isOpen])
 
+  // Recalculate fixed portal coordinates
+  const updatePortalCoords = useCallback(() => {
+    if (!wrapperRef.current) return
+    const rect = wrapperRef.current.getBoundingClientRect()
+    const spaceBelow = window.innerHeight - rect.bottom
+    const dropdownHeight = 320
+    const flipUp = spaceBelow < dropdownHeight && rect.top > dropdownHeight
+
+    setPortalCoords({
+      top: flipUp ? Math.max(10, rect.top - dropdownHeight - 4) : rect.bottom + 4,
+      left: rect.left,
+      width: Math.max(rect.width, 360),
+      flipUp,
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!isOpen) return
+    updatePortalCoords()
+
+    window.addEventListener('resize', updatePortalCoords)
+    window.addEventListener('scroll', updatePortalCoords, true)
+    return () => {
+      window.removeEventListener('resize', updatePortalCoords)
+      window.removeEventListener('scroll', updatePortalCoords, true)
+    }
+  }, [isOpen, updatePortalCoords])
+
   // Close dropdown on click outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+      const target = event.target as Node
+      const isInsideWrapper = wrapperRef.current && wrapperRef.current.contains(target)
+      const isInsideDropdown = dropdownRef.current && dropdownRef.current.contains(target)
+
+      if (!isInsideWrapper && !isInsideDropdown) {
         setIsOpen(false)
         if (selectedProduct) {
           setQuery(`${selectedProduct.sku} - ${selectedProduct.name}`)
@@ -59,14 +125,35 @@ export default function SearchableProductSelect({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [selectedProduct])
 
-  // Filter products by search query (multi-word tokenized search)
-  const filteredProducts = products.filter((p) => {
-    if (!query.trim()) return true
-    const searchTokens = query.toLowerCase().trim().split(/\s+/).filter(Boolean)
-    const searchableText = `${p.sku} ${p.name} ${p.category || ''} ${p.subcategory || ''}`.toLowerCase()
+  // Filter products by search query, category filter and stock availability
+  const filteredProducts = useMemo(() => {
+    return products.filter((p) => {
+      // Stock availability filter
+      if (onlyAvailable && p.stock <= 0) {
+        return false
+      }
 
-    return searchTokens.every((token) => searchableText.includes(token))
-  })
+      // Category filter
+      if (selectedCategory !== 'ALL' && p.category !== selectedCategory) {
+        return false
+      }
+
+      // Query filter
+      if (!query.trim()) return true
+      const queryNorm = normalizeText(query.trim())
+      const searchTokens = queryNorm.split(/\s+/).filter(Boolean)
+      const searchableText = normalizeText(
+        `${p.sku} ${p.name} ${p.category || ''} ${p.subcategory || ''}`
+      )
+
+      return searchTokens.every((token) => searchableText.includes(token))
+    })
+  }, [products, query, selectedCategory, onlyAvailable])
+
+  // Reset keyboard highlight on filter change
+  useEffect(() => {
+    setHighlightedIndex(-1)
+  }, [filteredProducts.length, selectedCategory, onlyAvailable])
 
   const handleSelect = (product: SearchableProductItem) => {
     onSelectProduct(product)
@@ -81,17 +168,195 @@ export default function SearchableProductSelect({
     setIsOpen(false)
   }
 
+  // Keyboard navigation
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!isOpen) {
+      if (e.key === 'ArrowDown' || e.key === 'Enter') {
+        setIsOpen(true)
+        updatePortalCoords()
+      }
+      return
+    }
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setHighlightedIndex((prev) => (prev < filteredProducts.length - 1 ? prev + 1 : 0))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : filteredProducts.length - 1))
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      if (highlightedIndex >= 0 && highlightedIndex < filteredProducts.length) {
+        handleSelect(filteredProducts[highlightedIndex])
+      }
+    } else if (e.key === 'Escape') {
+      setIsOpen(false)
+    }
+  }
+
+  // Dropdown element content
+  const dropdownContent = (
+    <div
+      ref={dropdownRef}
+      style={
+        mounted && portalCoords
+          ? {
+              position: 'fixed',
+              top: `${portalCoords.top}px`,
+              left: `${portalCoords.left}px`,
+              width: `${portalCoords.width}px`,
+              zIndex: 999999,
+            }
+          : undefined
+      }
+      className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-fade-in ${
+        !portalCoords ? 'absolute z-[9999] left-0 right-0 w-full mt-1.5' : ''
+      }`}
+    >
+      {/* Header with Category & Stock Filter Chips */}
+      <div className="p-2 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-1.5 overflow-x-auto scrollbar-none">
+        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+          <span className="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 shrink-0 mr-1">
+            Filtros:
+          </span>
+          <button
+            type="button"
+            onClick={() => setSelectedCategory('ALL')}
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition whitespace-nowrap ${
+              selectedCategory === 'ALL'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
+            }`}
+          >
+            Todas ({products.length})
+          </button>
+          {availableCategories.map((cat) => {
+            const count = products.filter((p) => p.category === cat).length
+            const isSelected = selectedCategory === cat
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setSelectedCategory(cat)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition whitespace-nowrap ${
+                  isSelected
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
+                }`}
+              >
+                {cat} ({count})
+              </button>
+            )
+          })}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setOnlyAvailable(!onlyAvailable)}
+          className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold transition whitespace-nowrap shrink-0 flex items-center gap-1 ${
+            onlyAvailable
+              ? 'bg-emerald-600 text-white shadow-sm'
+              : 'bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 border border-emerald-300 dark:border-emerald-800'
+          }`}
+        >
+          {onlyAvailable ? '✅ Solo Disponibles (>0)' : '📦 Incluir Agotados'}
+        </button>
+      </div>
+
+      {/* Results List */}
+      <div className="max-h-64 sm:max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/80">
+        {filteredProducts.length === 0 ? (
+          <div className="p-6 text-center text-xs text-slate-400 space-y-1">
+            <p className="font-semibold text-slate-600 dark:text-slate-300">No se encontraron materiales</p>
+            <p className="text-[11px]">
+              {selectedCategory !== 'ALL'
+                ? `No hay resultados en la categoría "${selectedCategory}" con "${query}"`
+                : `No coincide ningún producto con "${query}"`}
+            </p>
+          </div>
+        ) : (
+          filteredProducts.map((product, idx) => {
+            const isSelected = product.id === selectedProductId
+            const isHighlighted = idx === highlightedIndex
+            const isLowStock = product.stock <= (product.minStock || 0)
+            const unitLabel = product.unit ? product.unit : 'UN'
+
+            return (
+              <button
+                key={product.id}
+                type="button"
+                onClick={() => handleSelect(product)}
+                onMouseEnter={() => setHighlightedIndex(idx)}
+                className={`w-full text-left px-3.5 py-2.5 transition flex justify-between items-center gap-3 ${
+                  isSelected
+                    ? 'bg-blue-50 dark:bg-blue-900/40 border-l-4 border-blue-500 font-semibold'
+                    : isHighlighted
+                    ? 'bg-slate-100 dark:bg-slate-800/80'
+                    : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                }`}
+              >
+                <div className="flex flex-col min-w-0 flex-1">
+                  <span className="text-xs font-bold text-slate-900 dark:text-white line-clamp-2 leading-snug">
+                    {product.name}
+                  </span>
+                  <div className="flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                    <span className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded font-mono font-bold text-blue-600 dark:text-blue-400">
+                      {product.sku}
+                    </span>
+                    <span>•</span>
+                    <span className="truncate font-medium">{product.category || 'General'}</span>
+                    {product.subcategory && (
+                      <>
+                        <span>/</span>
+                        <span className="truncate text-slate-400">{product.subcategory}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="text-right whitespace-nowrap shrink-0 ml-2">
+                  <span
+                    className={`text-[11px] font-extrabold px-2.5 py-1 rounded-lg inline-flex items-center gap-1 ${
+                      isLowStock
+                        ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/90 dark:text-rose-300 border border-rose-300 dark:border-rose-800'
+                        : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/90 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
+                    }`}
+                  >
+                    <span>Stock: {product.stock}</span>
+                    <span className="text-[9px] opacity-80 uppercase">{unitLabel}</span>
+                  </span>
+                </div>
+              </button>
+            )
+          })
+        )}
+      </div>
+
+      {/* Footer stats */}
+      <div className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800/90 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center text-[10px] text-slate-400">
+        <span>Mostrando {filteredProducts.length} de {products.length} productos</span>
+        <span>Usa ↑↓ para navegar y Enter para seleccionar</span>
+      </div>
+    </div>
+  )
+
   return (
     <div ref={wrapperRef} className="relative w-full">
       <div className="relative">
         <input
+          ref={inputRef}
           type="text"
           disabled={disabled}
           value={query}
-          onFocus={() => setIsOpen(true)}
+          onFocus={() => {
+            setIsOpen(true)
+            updatePortalCoords()
+          }}
+          onKeyDown={handleKeyDown}
           onChange={(e) => {
             setQuery(e.target.value)
             setIsOpen(true)
+            updatePortalCoords()
             if (selectedProductId && e.target.value === '') {
               onSelectProduct(null)
             }
@@ -115,54 +380,11 @@ export default function SearchableProductSelect({
         )}
       </div>
 
-      {isOpen && (
-        <div className="absolute z-[9999] left-0 right-0 w-full mt-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl max-h-56 sm:max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/80 animate-fade-in">
-          {filteredProducts.length === 0 ? (
-            <div className="p-4 text-center text-xs text-slate-400">
-              No se encontraron materiales que coincidan con &quot;{query}&quot;
-            </div>
-          ) : (
-            filteredProducts.map((product) => {
-              const isSelected = product.id === selectedProductId
-              const isLowStock = product.stock < (product.minStock || 0)
-              return (
-                <button
-                  key={product.id}
-                  type="button"
-                  onClick={() => handleSelect(product)}
-                  className={`w-full text-left px-3.5 py-3 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition flex justify-between items-center gap-2 ${
-                    isSelected ? 'bg-blue-50 dark:bg-blue-900/40 border-l-4 border-blue-500 font-semibold' : ''
-                  }`}
-                >
-                  <div className="flex flex-col min-w-0 flex-1">
-                    <span className="text-xs font-bold text-slate-900 dark:text-white line-clamp-2 leading-snug">
-                      {product.name}
-                    </span>
-                    <div className="flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 mt-1">
-                      <span className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-mono font-bold text-blue-600 dark:text-blue-400">
-                        {product.sku}
-                      </span>
-                      <span>•</span>
-                      <span className="truncate">{product.category || 'General'}</span>
-                    </div>
-                  </div>
-                  <div className="text-right whitespace-nowrap shrink-0 ml-2">
-                    <span
-                      className={`text-[11px] font-bold px-2 py-1 rounded-lg inline-block ${
-                        isLowStock
-                          ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-300 dark:border-rose-800'
-                          : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
-                      }`}
-                    >
-                      Stock: {product.stock}
-                    </span>
-                  </div>
-                </button>
-              )
-            })
-          )}
-        </div>
-      )}
+      {isOpen &&
+        (mounted && portalCoords
+          ? createPortal(dropdownContent, document.body)
+          : dropdownContent)}
     </div>
   )
 }
+
