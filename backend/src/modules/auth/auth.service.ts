@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from './users/users.service';
@@ -102,12 +102,19 @@ export class AuthService {
   }
 
   async resetPassword(email: string, token: string, newPassword: string) {
-    const user = await this.usersService.findByEmail(email);
-    if (!user || !user.resetToken || user.resetToken !== token) {
+    if (!newPassword || typeof newPassword !== 'string' || !newPassword.trim()) {
+      throw new BadRequestException('Debes proporcionar una nueva contraseña válida');
+    }
+
+    const cleanEmail = email?.trim();
+    const cleanToken = token?.trim().toUpperCase();
+
+    const user = await this.usersService.findByEmail(cleanEmail);
+    if (!user || !user.resetToken || user.resetToken.toUpperCase().trim() !== cleanToken) {
       throw new UnauthorizedException('Código de recuperación inválido o expirado');
     }
 
-    if (user.resetTokenExpires && user.resetTokenExpires < new Date()) {
+    if (user.resetTokenExpires && new Date(user.resetTokenExpires) < new Date()) {
       throw new UnauthorizedException('El código de recuperación ha expirado');
     }
 

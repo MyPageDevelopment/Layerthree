@@ -3,6 +3,9 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ValidateTokenDto } from './dto/validate-token.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
 @ApiTags('Authentication')
@@ -29,23 +32,20 @@ export class AuthController {
   @Post('validate')
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   @ApiOperation({ summary: 'Validar token JWT' })
-  async validateToken(@Body('token') token: string) {
-    return this.authService.validateToken(token);
+  async validateToken(@Body() dto: ValidateTokenDto) {
+    return this.authService.validateToken(dto.token);
   }
 
   @Post('forgot-password')
   @ApiOperation({ summary: 'Solicitar recuperación de contraseña por correo' })
-  async forgotPassword(@Body('email') email: string) {
-    return this.authService.forgotPassword(email);
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto.email);
   }
 
   @Post('reset-password')
   @ApiOperation({ summary: 'Restablecer contraseña con código de verificación' })
-  async resetPassword(
-    @Body('email') email: string,
-    @Body('token') token: string,
-    @Body('password') password: string,
-  ) {
-    return this.authService.resetPassword(email, token, password);
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    const password = dto.password || dto.newPassword || '';
+    return this.authService.resetPassword(dto.email, dto.token, password);
   }
 }
