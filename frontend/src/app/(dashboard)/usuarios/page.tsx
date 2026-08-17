@@ -302,9 +302,9 @@ export default function UsuariosPage() {
 
       {/* Modal Crear / Editar */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] my-auto flex flex-col">
+            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
               <h3 className="text-lg font-bold">
                 {editingUser ? 'Editar Usuario' : 'Nuevo Usuario'}
               </h3>
@@ -316,7 +316,7 @@ export default function UsuariosPage() {
               </button>
             </div>
 
-            <form onSubmit={handleSaveUser} className="space-y-4 text-sm">
+            <form onSubmit={handleSaveUser} className="space-y-4 text-sm overflow-y-auto pr-1 flex-1">
               <div>
                 <label className="block font-semibold mb-1">Nombre Completo</label>
                 <input
@@ -324,89 +324,83 @@ export default function UsuariosPage() {
                   required
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
-                  placeholder="Ej: Carlos Mendoza"
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
                 />
               </div>
 
               <div>
-                <label className="block font-semibold mb-1">Correo Electrónico</label>
+                <label className="block font-semibold mb-1">Email / Usuario</label>
                 <input
                   type="email"
                   required
                   value={formEmail}
                   onChange={(e) => setFormEmail(e.target.value)}
-                  placeholder="usuario@layerthree.cl"
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
                 />
               </div>
 
               <div>
                 <label className="block font-semibold mb-1">
-                  {editingUser ? 'Nueva Contraseña (Opcional)' : 'Contraseña'}
+                  Contraseña {editingUser && '(Dejar en blanco para conservar la actual)'}
                 </label>
                 <div className="relative">
                   <input
                     type={showFormPassword ? 'text' : 'password'}
-                    required={!editingUser}
                     value={formPassword}
                     onChange={(e) => setFormPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full px-3 py-2 pr-9 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder={editingUser ? '••••••••' : 'Ingrese contraseña'}
+                    className="w-full px-3 py-2 pr-10 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
                   />
                   <button
                     type="button"
                     onClick={() => setShowFormPassword(!showFormPassword)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white transition text-xs"
-                    title={showFormPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs font-semibold"
                   >
-                    {showFormPassword ? '🙈' : '👁️'}
+                    {showFormPassword ? '🙈 Ocultar' : '👁️ Ver'}
                   </button>
                 </div>
               </div>
 
-              <div>
-                <label className="block font-semibold mb-1">
-                  {editingUser ? 'Confirmar Nueva Contraseña' : 'Confirmar Contraseña'}
-                </label>
-                <div className="relative">
-                  <input
-                    type={showFormConfirmPassword ? 'text' : 'password'}
-                    required={!editingUser || !!formPassword}
-                    value={formConfirmPassword}
-                    onChange={(e) => setFormConfirmPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full px-3 py-2 pr-9 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowFormConfirmPassword(!showFormConfirmPassword)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white transition text-xs"
-                    title={showFormConfirmPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
-                  >
-                    {showFormConfirmPassword ? '🙈' : '👁️'}
-                  </button>
+              {(formPassword || !editingUser) && (
+                <div>
+                  <label className="block font-semibold mb-1">Confirmar Contraseña</label>
+                  <div className="relative">
+                    <input
+                      type={showFormConfirmPassword ? 'text' : 'password'}
+                      value={formConfirmPassword}
+                      onChange={(e) => setFormConfirmPassword(e.target.value)}
+                      placeholder="Repita la contraseña"
+                      className="w-full px-3 py-2 pr-10 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowFormConfirmPassword(!showFormConfirmPassword)}
+                      className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs font-semibold"
+                    >
+                      {showFormConfirmPassword ? '🙈 Ocultar' : '👁️ Ver'}
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div>
-                <label className="block font-semibold mb-1">Rol de Usuario</label>
+                <label className="block font-semibold mb-1">Rol en el Sistema</label>
                 <select
                   value={formRole}
                   onChange={(e) => setFormRole(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-semibold"
                 >
-                  <option value="SUPER_ADMIN">Super Admin</option>
-                  <option value="GERENTE">Gerente</option>
-                  <option value="JEFE_PROYECTO">Jefe de Proyecto</option>
-                  <option value="BODEGUERO">Bodeguero / Administrador de Bodega</option>
-                  <option value="TECNICO">Técnico</option>
+                  <option value="SUPER_ADMIN">⚡ Super Admin (Acceso Total)</option>
+                  <option value="GERENTE">💼 Gerente / Administración</option>
+                  <option value="JEFE_PROYECTO">🏗️ Jefe de Proyecto</option>
+                  <option value="BODEGUERO">📦 Bodeguero</option>
+                  <option value="TECNICO">🔧 Técnico en Terreno</option>
                 </select>
               </div>
 
               <div>
-                <label className="block font-semibold mb-1.5">Módulos Permitidos</label>
-                <div className="space-y-2 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                <label className="block font-semibold mb-1 text-xs">Módulos Permitidos</label>
+                <div className="space-y-1.5 p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-800 text-xs">
                   <label className="flex items-center space-x-2 cursor-pointer">
                     <input
                       type="checkbox"
@@ -414,7 +408,7 @@ export default function UsuariosPage() {
                       onChange={() => handleToggleModule('inventory')}
                       className="rounded border-slate-300 dark:border-slate-700 text-blue-600"
                     />
-                    <span>📦 Bodega / Inventario</span>
+                    <span>📦 Inventario y Bodega</span>
                   </label>
                   <label className="flex items-center space-x-2 cursor-pointer">
                     <input
@@ -423,7 +417,7 @@ export default function UsuariosPage() {
                       onChange={() => handleToggleModule('projects')}
                       className="rounded border-slate-300 dark:border-slate-700 text-blue-600"
                     />
-                    <span>📊 Proyectos / Calendario</span>
+                    <span>🏗️ Proyectos y Terreno</span>
                   </label>
                   <label className="flex items-center space-x-2 cursor-pointer">
                     <input
@@ -432,7 +426,7 @@ export default function UsuariosPage() {
                       onChange={() => handleToggleModule('reports')}
                       className="rounded border-slate-300 dark:border-slate-700 text-blue-600"
                     />
-                    <span>📋 Reportes / Actividades</span>
+                    <span>📋 Reportes y Actividades</span>
                   </label>
                 </div>
               </div>
@@ -450,7 +444,7 @@ export default function UsuariosPage() {
                 </label>
               </div>
 
-              <div className="flex justify-end space-x-3 pt-4 border-t border-slate-200 dark:border-slate-800">
+              <div className="flex justify-end space-x-3 pt-4 border-t border-slate-200 dark:border-slate-800 shrink-0">
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
@@ -462,7 +456,7 @@ export default function UsuariosPage() {
                   type="submit"
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-semibold shadow"
                 >
-                  Guardar
+                  Guardar Usuario
                 </button>
               </div>
             </form>

@@ -997,9 +997,9 @@ export default function BodegaPage() {
 
       {/* MODAL PRODUCTO (CREAR / EDITAR MATERIAL) */}
       {showProductModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 max-w-lg w-full shadow-2xl space-y-4">
-            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6 max-w-lg w-full shadow-2xl space-y-4 max-h-[90vh] my-auto flex flex-col">
+            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
               <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <span>📦</span> {editingProduct ? 'Editar Material / Equipo' : 'Crear Nuevo Material / Equipo'}
               </h3>
@@ -1011,7 +1011,7 @@ export default function BodegaPage() {
               </button>
             </div>
 
-            <form onSubmit={handleSaveProduct} className="space-y-4 text-xs sm:text-sm">
+            <form onSubmit={handleSaveProduct} className="space-y-4 text-xs sm:text-sm overflow-y-auto pr-1 flex-1">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">SKU *</label>
@@ -1170,7 +1170,7 @@ export default function BodegaPage() {
                 />
               </div>
 
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800 shrink-0">
                 <button
                   type="button"
                   onClick={() => setShowProductModal(false)}
@@ -1450,9 +1450,9 @@ export default function BodegaPage() {
 
       {/* MODAL IMPORTAR CSV */}
       {showCsvModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
-            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6 max-w-lg w-full shadow-2xl space-y-4 max-h-[90vh] my-auto flex flex-col">
+            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
               <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <span>📄</span> Importar Inventario desde CSV
               </h3>
@@ -1465,12 +1465,12 @@ export default function BodegaPage() {
             </div>
 
             {csvMessage && (
-              <div className="p-3 bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 rounded-xl text-xs border border-emerald-300 dark:border-emerald-800">
+              <div className="p-3 bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 rounded-xl text-xs border border-emerald-300 dark:border-emerald-800 shrink-0">
                 {csvMessage}
               </div>
             )}
 
-            <div className="space-y-3 text-xs sm:text-sm">
+            <div className="space-y-3 text-xs sm:text-sm overflow-y-auto pr-1 flex-1">
               <p className="text-slate-500 dark:text-slate-400">
                 Selecciona la planilla <code className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-mono text-blue-600 dark:text-blue-400">inventario_con_costos_y_formulas.csv</code> (o <code className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-mono text-blue-600 dark:text-blue-400">inventario_organizado.csv</code>) o pega el contenido del archivo CSV.
               </p>
@@ -1497,7 +1497,7 @@ export default function BodegaPage() {
               </div>
             </div>
 
-            <div className="flex justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+            <div className="flex justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800 shrink-0">
               <button
                 type="button"
                 onClick={() => setShowCsvModal(false)}

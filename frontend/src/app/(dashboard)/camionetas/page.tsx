@@ -411,9 +411,9 @@ export default function CamionetasPage() {
 
       {/* Modal Crear / Editar Camioneta */}
       {showVanModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
-            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] my-auto flex flex-col">
+            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
               <h3 className="text-lg font-bold text-slate-900 dark:text-white">
                 {editingVan ? 'Editar Camioneta' : 'Registrar Nueva Camioneta'}
               </h3>
@@ -422,7 +422,7 @@ export default function CamionetasPage() {
               </button>
             </div>
 
-            <form onSubmit={handleSaveVan} className="space-y-4">
+            <form onSubmit={handleSaveVan} className="space-y-4 overflow-y-auto pr-1 flex-1">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Patente (Ej: AB-123-CD) *
@@ -649,16 +649,16 @@ export default function CamionetasPage() {
 
       {/* Sub-modal: Agregar ítem a la camioneta */}
       {showItemModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
-            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] my-auto flex flex-col">
+            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
               <h4 className="text-base font-bold text-slate-900 dark:text-white">Asignar Ítem a la Camioneta</h4>
               <button onClick={() => setShowItemModal(false)} className="text-slate-400 hover:text-white text-xl">
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleAddItem} className="space-y-4">
+            <form onSubmit={handleAddItem} className="space-y-4 overflow-y-auto pr-1 flex-1">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Buscar y Seleccionar desde el Inventario

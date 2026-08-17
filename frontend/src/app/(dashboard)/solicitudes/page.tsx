@@ -862,9 +862,9 @@ export default function SolicitudesPage() {
 
       {/* Modal Crear Solicitud */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-3xl w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-3xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] my-auto flex flex-col">
+            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
               <div>
                 <h3 className="text-lg font-bold">Nueva Solicitud de Materiales</h3>
                 <p className="text-xs text-slate-400">Selecciona el proyecto y busca los materiales requeridos.</p>
@@ -877,7 +877,7 @@ export default function SolicitudesPage() {
               </button>
             </div>
 
-            <form onSubmit={handleCreateRequest} className="space-y-4 text-sm">
+            <form onSubmit={handleCreateRequest} className="space-y-4 text-sm overflow-y-auto pr-1 flex-1">
               <div>
                 <label className="block font-semibold mb-1">Nombre del Proyecto</label>
                 <input
@@ -1095,9 +1095,9 @@ export default function SolicitudesPage() {
 
       {/* Modal Despacho Bodeguero */}
       {dispatchRequest && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] my-auto flex flex-col">
+            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
               <div>
                 <h3 className="text-lg font-bold">Despacho y Entrega de Pedido {dispatchRequest.code}</h3>
                 <p className="text-xs text-slate-400">Proyecto: {dispatchRequest.projectName}</p>
@@ -1110,7 +1110,7 @@ export default function SolicitudesPage() {
               </button>
             </div>
 
-            <form onSubmit={handleConfirmDispatch} className="space-y-4 text-sm">
+            <form onSubmit={handleConfirmDispatch} className="space-y-4 text-sm overflow-y-auto pr-1 flex-1">
               {dispatchError && (
                 <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-700 dark:text-red-400 rounded-xl text-xs font-semibold flex justify-between items-center animate-fade-in shadow-sm">
                   <div className="flex items-center gap-2">
@@ -1293,9 +1293,9 @@ export default function SolicitudesPage() {
 
       {/* Modal Visualizador de Foto de Entrega */}
       {viewPhotoRequest && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] my-auto flex flex-col">
+            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
               <div>
                 <h3 className="text-lg font-bold flex items-center gap-2">
                   <span>📷</span> Comprobante de Entrega - {viewPhotoRequest.code}
@@ -1357,9 +1357,9 @@ export default function SolicitudesPage() {
 
       {/* MODAL REDACTAR / GENERAR COTIZACIÓN A PROVEEDOR (BODEGUERO) */}
       {showSupplierQuoteModal && supplierQuoteRequest && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] my-auto flex flex-col">
+            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
               <div>
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
                   <span>📧</span> Redactar Cotización a Proveedor
