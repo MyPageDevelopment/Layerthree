@@ -125,12 +125,35 @@ export class UsersService {
   async remove(id: string) {
     await this.findOne(id);
     
-    const user = await this.prisma.user.delete({
-      where: { id },
-    });
+    try {
+      // Limpiar notificaciones y tokens temporales asociados al usuario si existen
+      await this.prisma.appNotification.deleteMany({ where: { userId: id } }).catch(() => null);
+      await this.prisma.notification.deleteMany({ where: { userId: id } }).catch(() => null);
+      await this.prisma.taskUpdateToken.deleteMany({ where: { userId: id } }).catch(() => null);
 
-    const { password: _, ...result } = user;
-    return result;
+      // Intentar borrado físico si no tiene historial referenciado
+      const user = await this.prisma.user.delete({
+        where: { id },
+      });
+
+      const { password: _, ...result } = user;
+      return result;
+    } catch (error: any) {
+      // Si falla por restricción de clave foránea (movimientos, solicitudes, proyectos, tareas, etc.)
+      if (error.code === 'P2003' || error.message?.includes('Foreign key constraint')) {
+        const user = await this.prisma.user.update({
+          where: { id },
+          data: { isActive: false },
+        });
+
+        const { password: _, ...result } = user;
+        return {
+          ...result,
+          message: 'El usuario tiene registros de historial asociados (movimientos, solicitudes o proyectos). La cuenta se ha desactivado para mantener la integridad de los datos.',
+        };
+      }
+      throw error;
+    }
   }
 
   async updateResetToken(id: string, token: string, expires: Date) {

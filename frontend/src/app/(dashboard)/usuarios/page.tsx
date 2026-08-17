@@ -129,7 +129,10 @@ export default function UsuariosPage() {
   const handleDeleteUser = async () => {
     if (!userToDelete) return
     try {
-      await api.delete(`/users/${userToDelete.id}`)
+      const res = await api.delete(`/users/${userToDelete.id}`)
+      if (res.data?.message) {
+        alert(res.data.message)
+      }
       setUserToDelete(null)
       fetchUsers()
     } catch (err: any) {
