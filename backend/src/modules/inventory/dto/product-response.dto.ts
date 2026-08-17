@@ -30,6 +30,21 @@ export class ProductResponseDto {
   unitPrice: number;
 
   @Expose()
+  unit?: string;
+
+  @Expose()
+  unitCost?: number;
+
+  @Expose()
+  totalCost?: number;
+
+  @Expose()
+  listPrice?: number;
+
+  @Expose()
+  supplierCode?: string;
+
+  @Expose()
   createdAt: Date;
 
   @Expose()

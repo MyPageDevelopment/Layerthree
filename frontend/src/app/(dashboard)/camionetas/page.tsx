@@ -56,6 +56,8 @@ export default function CamionetasPage() {
 
   // Manage items drawer / modal state
   const [selectedVan, setSelectedVan] = useState<Van | null>(null)
+  const [itemSearchTerm, setItemSearchTerm] = useState('')
+  const [itemFilterType, setItemFilterType] = useState<'TODOS' | 'HERRAMIENTA' | 'MATERIAL'>('TODOS')
   const [showItemModal, setShowItemModal] = useState(false)
   const [itemProductId, setItemProductId] = useState('')
   const [itemName, setItemName] = useState('')
@@ -141,6 +143,8 @@ export default function CamionetasPage() {
 
   const handleOpenManageItems = async (van: Van) => {
     try {
+      setItemSearchTerm('')
+      setItemFilterType('TODOS')
       const res = await api.get(`/vans/${van.id}`)
       setSelectedVan(res.data)
     } catch (err) {
@@ -209,10 +213,13 @@ export default function CamionetasPage() {
   }
 
   const filteredVans = vans.filter((v) => {
+    const query = searchTerm.toLowerCase().trim()
     const matchesSearch =
-      v.plate.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      v.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (v.driver && v.driver.toLowerCase().includes(searchTerm.toLowerCase()))
+      !query ||
+      v.plate.toLowerCase().includes(query) ||
+      v.name.toLowerCase().includes(query) ||
+      (v.driver && v.driver.toLowerCase().includes(query)) ||
+      (v.items && v.items.some((i) => i.name.toLowerCase().includes(query) || (i.sku && i.sku.toLowerCase().includes(query))))
     const matchesStatus = filterStatus === 'TODOS' || v.status === filterStatus
     return matchesSearch && matchesStatus
   })
@@ -270,7 +277,7 @@ export default function CamionetasPage() {
             🛠️
           </div>
           <div>
-            <p className="text-xs font-semibold text-slate-400 uppercase">Tipos Herramientas</p>
+            <p className="text-xs font-semibold text-slate-400 uppercase">Total Herramientas</p>
             <p className="text-2xl font-extrabold text-slate-900 dark:text-white">{totalTools}</p>
           </div>
         </div>
@@ -280,7 +287,7 @@ export default function CamionetasPage() {
             📦
           </div>
           <div>
-            <p className="text-xs font-semibold text-slate-400 uppercase">Materiales Cheados</p>
+            <p className="text-xs font-semibold text-slate-400 uppercase">Materiales Cargados</p>
             <p className="text-2xl font-extrabold text-slate-900 dark:text-white">{totalMaterials}</p>
           </div>
         </div>
@@ -514,9 +521,9 @@ export default function CamionetasPage() {
             </div>
 
             {/* Actions & Add Item Button */}
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
               <h4 className="font-bold text-sm text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                <span>📦</span> Herramientas y Materiales Cheados
+                <span>📦</span> Herramientas y Materiales Cargados
               </h4>
               <button
                 onClick={() => setShowItemModal(true)}
@@ -526,62 +533,116 @@ export default function CamionetasPage() {
               </button>
             </div>
 
-            {/* Items List */}
-            {(!selectedVan.items || selectedVan.items.length === 0) ? (
-              <div className="p-8 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-slate-500 text-xs">
-                No hay ítems asignados a esta camioneta actualmente.
+            {/* Inner Filter and Search in Van Modal */}
+            <div className="flex flex-col sm:flex-row gap-2.5 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={itemSearchTerm}
+                  onChange={(e) => setItemSearchTerm(e.target.value)}
+                  placeholder="🔍 Buscar por nombre, SKU o categoría..."
+                  className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
               </div>
-            ) : (
-              <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden text-xs">
-                {selectedVan.items.map((item) => (
-                  <div key={item.id} className="p-3.5 flex items-center justify-between gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            item.type === 'HERRAMIENTA'
-                              ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
-                              : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
-                          }`}
-                        >
-                          {item.type}
-                        </span>
-                        {item.sku && <span className="font-mono text-slate-400 text-[11px]">{item.sku}</span>}
-                      </div>
-                      <p className="font-bold text-slate-900 dark:text-white mt-1">{item.name}</p>
-                      <p className="text-[10px] text-slate-400">Categoría: {item.category}</p>
-                    </div>
-
-                    {/* Quantity Controls */}
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleUpdateItemQty(item.id, item.quantity - 1)}
-                        className="w-7 h-7 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white font-bold flex items-center justify-center hover:bg-slate-300"
-                      >
-                        -
-                      </button>
-                      <span className="font-extrabold text-slate-900 dark:text-white w-8 text-center text-sm">
-                        {item.quantity}
-                      </span>
-                      <button
-                        onClick={() => handleUpdateItemQty(item.id, item.quantity + 1)}
-                        className="w-7 h-7 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white font-bold flex items-center justify-center hover:bg-slate-300"
-                      >
-                        +
-                      </button>
-                    </div>
-
-                    <button
-                      onClick={() => handleRemoveItem(item.id)}
-                      className="p-1.5 text-slate-400 hover:text-red-500 transition"
-                      title="Quitar ítem"
-                    >
-                      🗑️
-                    </button>
-                  </div>
+              <div className="flex gap-1">
+                {(['TODOS', 'HERRAMIENTA', 'MATERIAL'] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setItemFilterType(t)}
+                    className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition ${
+                      itemFilterType === t
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    {t}
+                  </button>
                 ))}
               </div>
-            )}
+            </div>
+
+            {/* Items List */}
+            {(() => {
+              const displayItems = (selectedVan.items || []).filter((item) => {
+                const query = itemSearchTerm.toLowerCase().trim()
+                const matchesText =
+                  !query ||
+                  item.name.toLowerCase().includes(query) ||
+                  (item.sku && item.sku.toLowerCase().includes(query)) ||
+                  item.category.toLowerCase().includes(query)
+                const matchesType = itemFilterType === 'TODOS' || item.type === itemFilterType
+                return matchesText && matchesType
+              })
+
+              if (!selectedVan.items || selectedVan.items.length === 0) {
+                return (
+                  <div className="p-8 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-slate-500 text-xs">
+                    No hay ítems asignados a esta camioneta actualmente.
+                  </div>
+                )
+              }
+
+              if (displayItems.length === 0) {
+                return (
+                  <div className="p-8 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-slate-500 text-xs">
+                    No se encontraron ítems que coincidan con la búsqueda o filtro seleccionados.
+                  </div>
+                )
+              }
+
+              return (
+                <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden text-xs">
+                  {displayItems.map((item) => (
+                    <div key={item.id} className="p-3.5 flex items-center justify-between gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              item.type === 'HERRAMIENTA'
+                                ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
+                                : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                            }`}
+                          >
+                            {item.type}
+                          </span>
+                          {item.sku && <span className="font-mono text-slate-400 text-[11px]">{item.sku}</span>}
+                        </div>
+                        <p className="font-bold text-slate-900 dark:text-white mt-1">{item.name}</p>
+                        <p className="text-[10px] text-slate-400">Categoría: {item.category}</p>
+                      </div>
+
+                      {/* Quantity Controls */}
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleUpdateItemQty(item.id, item.quantity - 1)}
+                          className="w-7 h-7 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white font-bold flex items-center justify-center hover:bg-slate-300"
+                        >
+                          -
+                        </button>
+                        <span className="font-extrabold text-slate-900 dark:text-white w-8 text-center text-sm">
+                          {item.quantity}
+                        </span>
+                        <button
+                          onClick={() => handleUpdateItemQty(item.id, item.quantity + 1)}
+                          className="w-7 h-7 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white font-bold flex items-center justify-center hover:bg-slate-300"
+                        >
+                          +
+                        </button>
+                      </div>
+
+                      <button
+                        onClick={() => handleRemoveItem(item.id)}
+                        className="p-1.5 text-slate-400 hover:text-red-500 transition"
+                        title="Quitar ítem"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
           </div>
         </div>
       )}

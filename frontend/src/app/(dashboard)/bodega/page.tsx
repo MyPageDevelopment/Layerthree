@@ -66,12 +66,7 @@ export default function BodegaPage() {
     supplierCode: '',
   })
 
-  // Modal Edición Rápida de Montos (Bodeguero)
-  const [quickEditProduct, setQuickEditProduct] = useState<Product | null>(null)
-  const [quickUnitCost, setQuickUnitCost] = useState<number>(0)
-  const [quickStock, setQuickStock] = useState<number>(0)
-  const [quickUnit, setQuickUnit] = useState<string>('UN')
-  const [quickListPrice, setQuickListPrice] = useState<number>(0)
+
 
   // Formulario Movimiento Lote/Múltiple
   const [movementBatchType, setMovementBatchType] = useState<'ENTRY' | 'EXIT'>('ENTRY')
@@ -125,15 +120,7 @@ export default function BodegaPage() {
     return sum + (p.stock || 0) * cost
   }, 0)
 
-  // Quick edit de costos por bodeguero
-  const handleOpenQuickEdit = (p: Product) => {
-    setQuickEditProduct(p)
-    setQuickUnitCost(p.unitCost || p.unitPrice || 0)
-    setQuickStock(p.stock || 0)
-    const isUtp = p.name.toUpperCase().includes('UTP') || p.sku.toUpperCase().includes('UTP')
-    setQuickUnit(isUtp ? 'MTS' : (p.unit || 'UN'))
-    setQuickListPrice(p.listPrice || 0)
-  }
+
 
   // Auto SKU Generator
   const fetchNextSku = async (category: string, subcategory?: string) => {
@@ -177,27 +164,7 @@ export default function BodegaPage() {
     fetchNextSku(newCategory, formData.subcategory)
   }
 
-  const handleSaveQuickEdit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!quickEditProduct) return
-    startLoading('Actualizando datos del producto...')
-    try {
-      await api.patch(`/products/${quickEditProduct.id}`, {
-        unitCost: quickUnitCost,
-        unitPrice: quickUnitCost > 0 ? quickUnitCost : quickEditProduct.unitPrice,
-        stock: quickStock,
-        unit: quickUnit,
-        listPrice: quickListPrice,
-      })
-      setQuickEditProduct(null)
-      showToast('success', 'Producto actualizado exitosamente', 'Edición Rápida')
-      loadData()
-    } catch (err: any) {
-      showToast('error', err.response?.data?.message || 'Error al actualizar producto')
-    } finally {
-      stopLoading()
-    }
-  }
+
 
   // Subcategorías disponibles dinámicas según filtro
   const availableSubcategories = useMemo(() => {
@@ -761,8 +728,7 @@ export default function BodegaPage() {
           {/* MOBILE CARDS VIEW (For small screens) */}
           <div className="block md:hidden space-y-3">
             {filteredProducts.map((product) => {
-              const isUtp = product.name.toUpperCase().includes('UTP') || product.sku.toUpperCase().includes('UTP')
-              const unitStr = isUtp ? 'MTS' : (product.unit || 'UN')
+              const unitStr = product.unit || 'UN'
               const baseCost = (product.unitCost && product.unitCost > 0) ? product.unitCost : product.unitPrice
               const totalCostVal = product.stock * baseCost
 
@@ -802,12 +768,6 @@ export default function BodegaPage() {
                   {canManage && (
                     <div className="flex justify-end gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
                       <button
-                        onClick={() => handleOpenQuickEdit(product)}
-                        className="text-emerald-600 hover:text-emerald-700 font-bold text-xs flex items-center gap-1"
-                      >
-                        💰 Ajustar Monto
-                      </button>
-                      <button
                         onClick={() => {
                           setEditingProduct(product)
                           setFormData({
@@ -818,26 +778,26 @@ export default function BodegaPage() {
                             subcategory: product.subcategory || '',
                             stock: product.stock,
                             minStock: product.minStock,
-                            unitPrice: product.unitPrice,
-                            unit: isUtp ? 'MTS' : (product.unit || 'UN'),
+                            unitPrice: product.unitPrice || 0,
+                            unit: product.unit || 'UN',
                             unitCost: product.unitCost || product.unitPrice || 0,
                             listPrice: product.listPrice || 0,
                             supplierCode: product.supplierCode || '',
                           })
                           setShowProductModal(true)
                         }}
-                        className="text-blue-600 font-semibold text-xs"
+                        className="text-blue-600 font-semibold text-xs flex items-center gap-1"
                       >
-                        Editar
+                        ✏️ Editar
                       </button>
                       <button
                         onClick={() => {
                           setProductToDelete(product.id)
                           setShowConfirmDialog(true)
                         }}
-                        className="text-red-600 font-semibold text-xs"
+                        className="text-red-600 font-semibold text-xs flex items-center gap-1"
                       >
-                        Eliminar
+                        🗑️ Eliminar
                       </button>
                     </div>
                   )}
@@ -864,8 +824,7 @@ export default function BodegaPage() {
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                   {filteredProducts.map((product) => {
-                    const isUtp = product.name.toUpperCase().includes('UTP') || product.sku.toUpperCase().includes('UTP')
-                    const unitStr = isUtp ? 'MTS' : (product.unit || 'UN')
+                    const unitStr = product.unit || 'UN'
                     const baseCost = (product.unitCost && product.unitCost > 0) ? product.unitCost : product.unitPrice
                     const totalCostVal = product.stock * baseCost
 
@@ -904,13 +863,6 @@ export default function BodegaPage() {
                         {canManage && (
                           <td className="px-4 py-3 text-right space-x-2">
                             <button
-                              onClick={() => handleOpenQuickEdit(product)}
-                              className="text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 font-bold text-xs hover:underline inline-flex items-center gap-1"
-                              title="Ajustar monto de costo unitario base a mano"
-                            >
-                              💰 Ajustar Monto
-                            </button>
-                            <button
                               onClick={() => {
                                 setEditingProduct(product)
                                 setFormData({
@@ -921,8 +873,8 @@ export default function BodegaPage() {
                                   subcategory: product.subcategory || '',
                                   stock: product.stock,
                                   minStock: product.minStock,
-                                  unitPrice: product.unitPrice,
-                                  unit: isUtp ? 'MTS' : (product.unit || 'UN'),
+                                  unitPrice: product.unitPrice || 0,
+                                  unit: product.unit || 'UN',
                                   unitCost: product.unitCost || product.unitPrice || 0,
                                   listPrice: product.listPrice || 0,
                                   supplierCode: product.supplierCode || '',
@@ -1141,7 +1093,7 @@ export default function BodegaPage() {
                     onFocus={(e) => e.target.select()}
                     onChange={(e) => setFormData({ ...formData, stock: e.target.value === '' ? 0 : Number(e.target.value) })}
                     placeholder="0"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs font-bold"
                   />
                 </div>
 
@@ -1157,6 +1109,65 @@ export default function BodegaPage() {
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs"
                   />
                 </div>
+              </div>
+
+              {/* Sección Costos y Precios */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-800">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Costo Unit. Base CLP ($)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.unitCost === 0 ? '' : formData.unitCost}
+                    onFocus={(e) => e.target.select()}
+                    onChange={(e) => setFormData({ ...formData, unitCost: e.target.value === '' ? 0 : parseFloat(e.target.value) || 0 })}
+                    placeholder="0"
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Precio Lista CLP ($)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.listPrice === 0 ? '' : formData.listPrice}
+                    onFocus={(e) => e.target.select()}
+                    onChange={(e) => setFormData({ ...formData, listPrice: e.target.value === '' ? 0 : parseFloat(e.target.value) || 0 })}
+                    placeholder="0"
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs font-mono font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Código Proveedor
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.supplierCode}
+                    onChange={(e) => setFormData({ ...formData, supplierCode: e.target.value })}
+                    placeholder="Ej: PROV-998"
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Descripción / Notas</label>
+                <textarea
+                  rows={2}
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="Detalles adicionales del producto o especificaciones..."
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs"
+                />
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
@@ -1435,121 +1446,7 @@ export default function BodegaPage() {
         </div>
       )}
 
-      {/* MODAL AJUSTE RÁPIDO DE MONTO / COSTO (BODEGUERO) */}
-      {quickEditProduct && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
-            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
-              <div>
-                <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <span>💰</span> Ajustar Monto y Costos a Mano
-                </h3>
-                <p className="text-xs text-slate-400 font-mono mt-0.5">{quickEditProduct.sku} - {quickEditProduct.name}</p>
-              </div>
-              <button
-                onClick={() => setQuickEditProduct(null)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-white text-xl"
-              >
-                ✕
-              </button>
-            </div>
 
-            <form onSubmit={handleSaveQuickEdit} className="space-y-4 text-sm">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Costo Unitario Base CLP ($)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  required
-                  value={quickUnitCost === 0 ? '' : quickUnitCost}
-                  onFocus={(e) => e.target.select()}
-                  onChange={(e) => setQuickUnitCost(e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
-                  placeholder="0"
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono font-bold"
-                />
-                <p className="text-[11px] text-slate-400 mt-1">Este monto calcula el Costo Total en Bodega.</p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Cantidad Stock
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    required
-                    value={quickStock === 0 ? '' : quickStock}
-                    onFocus={(e) => e.target.select()}
-                    onChange={(e) => setQuickStock(e.target.value === '' ? 0 : parseInt(e.target.value, 10) || 0)}
-                    placeholder="0"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Unidad de Medida
-                  </label>
-                  <select
-                    value={quickUnit}
-                    onChange={(e) => setQuickUnit(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-semibold"
-                  >
-                    <option value="UN">UN (Unidades)</option>
-                    <option value="MTS">MTS (Metros - Cables UTP)</option>
-                    <option value="TIRA">TIRA (Tiras 3m)</option>
-                    <option value="ROLLOS">ROLLOS (Rollos)</option>
-                    <option value="CAJAS">CAJAS (Cajas)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Precio Lista CLP ($)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={quickListPrice === 0 ? '' : quickListPrice}
-                  onFocus={(e) => e.target.select()}
-                  onChange={(e) => setQuickListPrice(e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
-                  placeholder="0"
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono"
-                />
-              </div>
-
-              <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Nuevo Costo Total Bodega:</span>
-                  <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                    ${(quickStock * quickUnitCost).toLocaleString('es-CL')}
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setQuickEditProduct(null)}
-                  className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow"
-                >
-                  Guardar Cambios
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* MODAL IMPORTAR CSV */}
       {showCsvModal && (

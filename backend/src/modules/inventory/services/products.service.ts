@@ -22,11 +22,12 @@ export class ProductsService {
       throw new ConflictException('Ya existe un producto con ese SKU');
     }
 
-    const isUtp =
-      (createProductDto.name && createProductDto.name.toUpperCase().includes('UTP')) ||
-      (createProductDto.sku && createProductDto.sku.toUpperCase().includes('UTP'));
-
-    const unit = isUtp ? 'MTS' : (createProductDto.unit || 'UN').toUpperCase().trim();
+    const unit = createProductDto.unit
+      ? createProductDto.unit.toUpperCase().trim()
+      : ((createProductDto.name && createProductDto.name.toUpperCase().includes('UTP')) ||
+         (createProductDto.sku && createProductDto.sku.toUpperCase().includes('UTP')))
+      ? 'MTS'
+      : 'UN';
     const unitCost = createProductDto.unitCost ?? createProductDto.unitPrice ?? 0;
     const stock = createProductDto.stock ?? 0;
     const totalCost = stock * unitCost;
@@ -113,15 +114,13 @@ export class ProductsService {
       }
     }
 
-    const isUtp =
-      (updateProductDto.name || product.name).toUpperCase().includes('UTP') ||
-      (updateProductDto.sku || product.sku).toUpperCase().includes('UTP');
-
-    const newUnit = isUtp
-      ? 'MTS'
-      : updateProductDto.unit
+    const newUnit = updateProductDto.unit
       ? updateProductDto.unit.toUpperCase().trim()
-      : product.unit;
+      : product.unit ||
+        (((updateProductDto.name || product.name).toUpperCase().includes('UTP') ||
+          (updateProductDto.sku || product.sku).toUpperCase().includes('UTP'))
+          ? 'MTS'
+          : 'UN');
 
     const newStock = updateProductDto.stock !== undefined ? updateProductDto.stock : product.stock;
     const newUnitCost = updateProductDto.unitCost !== undefined ? updateProductDto.unitCost : (updateProductDto.unitPrice !== undefined ? updateProductDto.unitPrice : product.unitCost);
