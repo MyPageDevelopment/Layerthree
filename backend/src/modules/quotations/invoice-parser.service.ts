@@ -85,46 +85,44 @@ export class InvoiceParserService {
     // 5. Extraer Ítems de la Factura
     const items: ParsedInvoiceItem[] = [];
 
-    // Pattern típico chileno: Cantidad + Unidad + Detalle + Precio Unitario + Total
-    // Ejemplo: "2 Unid P01022 - TX MODULO RJ45 CAT 6 BLANCO 1.930 3.860"
-    // Ejemplo: "50 Unid P05565 - TK EMT ABRAZADERA 20MM TIPO CADDY 172 8.600"
-    const itemRegex = /^(\d+)\s+(Unid|Metr|Cja|Tira|UN|MTS|EA|PZA|KG|LT)\s+(.+?)\s+([\d\.\,]+)\s+([\d\.\,]+)$/i;
-    const fallbackRegex = /^(\d+)\s+(.+?)\s+([\d\.\,]+)\s+([\d\.\,]+)$/i;
+    // Pattern flexible para facturas chilenas:
+    // Cantidad + (Unidad Medida opcional) + Código/Detalle + Precio Unitario + Total
+    // Ejemplos:
+    // "1 Unid P04357 - TX CAPUCHON GRIS X 50 UNID 2.110 2.110"
+    // "20 P20975 - MT TUBO CONDUIT PVC 25MM 3 MTS 4422 FUERTE CEM 920 18.400"
+    // "3 unid P07287 - LV CORD CAT 6 UTP 2.1 MTS BLANCO LSZH HIGH FLEX 6H460-07W 10.200 30.600"
+    const flexItemRegex = /^(\d+)\s+(?:(Unid|Metr|Cja|Tira|UN|MTS|EA|PZA|KG|LT|unid|mts|tiras|cajas)\s+)?(.+?)\s+([\d\.\,]+)\s+([\d\.\,]+)$/i;
 
     for (const line of lines) {
-      const match = line.match(itemRegex);
+      if (
+        line.toUpperCase().includes('MONTO TOTAL') ||
+        line.toUpperCase().includes('SUBTOTAL') ||
+        line.toUpperCase().includes('IVA') ||
+        line.toUpperCase().includes('FECHA') ||
+        line.toUpperCase().includes('SEÑOR')
+      ) {
+        continue;
+      }
+
+      const match = line.match(flexItemRegex);
       if (match) {
         const qty = parseInt(match[1], 10) || 1;
-        const unitMeasure = match[2].toUpperCase();
+        const rawUnit = match[2] ? match[2].toUpperCase() : 'UN';
         const rawProductName = match[3].trim();
         const unitPrice = this.cleanNumber(match[4]);
         const totalPrice = this.cleanNumber(match[5]);
 
-        items.push({
-          rawLineText: line,
-          rawProductName,
-          quantity: qty,
-          unitMeasure: unitMeasure === 'METR' ? 'MTS' : unitMeasure === 'UNID' ? 'UN' : unitMeasure,
-          unitPrice,
-          totalPrice,
-          confidenceScore: 0,
-        });
-        continue;
-      }
+        if (qty > 0 && totalPrice > 0 && unitPrice > 0) {
+          // Extraer código de producto de la línea si existe (ej: P04357, P20975, P01022)
+          const codeMatch = rawProductName.match(/\b(P\d{4,6}|TK\d+|ZL\d+|[A-Z]{1,3}\d{4,6})\b/i);
+          const productCode = codeMatch ? codeMatch[1].toUpperCase() : undefined;
 
-      const fbMatch = line.match(fallbackRegex);
-      if (fbMatch && !line.toUpperCase().includes('TOTAL') && !line.toUpperCase().includes('FECHA')) {
-        const qty = parseInt(fbMatch[1], 10) || 1;
-        const rawProductName = fbMatch[2].trim();
-        const unitPrice = this.cleanNumber(fbMatch[3]);
-        const totalPrice = this.cleanNumber(fbMatch[4]);
-
-        if (qty > 0 && totalPrice >= unitPrice && unitPrice > 0) {
           items.push({
             rawLineText: line,
+            code: productCode,
             rawProductName,
             quantity: qty,
-            unitMeasure: 'UN',
+            unitMeasure: rawUnit === 'METR' ? 'MTS' : rawUnit === 'UNID' ? 'UN' : rawUnit,
             unitPrice,
             totalPrice,
             confidenceScore: 0,
@@ -163,16 +161,23 @@ export class InvoiceParserService {
     let maxScore = 0;
 
     for (const prod of products) {
-      // Coincidencia exacta por código de proveedor o SKU
-      if (prod.supplierCode && item.rawProductName.toUpperCase().includes(prod.supplierCode.toUpperCase())) {
+      // Coincidencia por código extraído (ej: P04357, P20975)
+      if (item.code && (prod.sku.toUpperCase() === item.code || (prod.supplierCode && prod.supplierCode.toUpperCase() === item.code))) {
         bestMatchProduct = prod;
         maxScore = 100;
         break;
       }
 
-      if (item.rawProductName.toUpperCase().includes(prod.sku.toUpperCase())) {
+      // Coincidencia por código de proveedor o SKU dentro del texto
+      if (prod.supplierCode && item.rawProductName.toUpperCase().includes(prod.supplierCode.toUpperCase())) {
         bestMatchProduct = prod;
         maxScore = 95;
+        break;
+      }
+
+      if (item.rawProductName.toUpperCase().includes(prod.sku.toUpperCase())) {
+        bestMatchProduct = prod;
+        maxScore = 90;
         break;
       }
 

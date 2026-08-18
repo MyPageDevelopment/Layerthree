@@ -6,6 +6,7 @@ import { getUser } from '@/lib/auth'
 import type { User, Product } from '@/types'
 import LoadingOverlay from '@/components/LoadingOverlay'
 import InvoiceConfirmationModal, { ParsedInvoiceData } from '@/components/InvoiceConfirmationModal'
+import ConfirmModal from '@/components/ConfirmModal'
 import { useToast } from '@/components/ToastNotification'
 import Tesseract from 'tesseract.js'
 
@@ -235,12 +236,6 @@ export default function CotizacionesPage() {
       setUploadDocName('')
       const updated = await api.get(`/quotations/${selectedQuotation.id}`)
       setSelectedQuotation(updated.data)
-
-      // Si subió Orden de Compra (OC), abrir modal para definir modalidad de entrega y responsable
-      if (uploadDocType === 'ORDEN_COMPRA') {
-        setShowOcDeliveryModal(true)
-      }
-
       fetchQuotations()
     } catch (err: any) {
       showToast(err.response?.data?.message || 'Error al adjuntar documento', 'error')
@@ -286,25 +281,28 @@ export default function CotizacionesPage() {
     }
   }
 
-  // 2. Guardar Modalidad de Retiro / Despacho y Responsable (Al subir OC o en tramitación)
+  // State for in-app deletion confirmation
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+
+  // 2. Guardar Modalidad de Retiro / Despacho y Responsable (Al marcar materiales listos para despacho/retiro)
   const handleSaveOcDelivery = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedQuotation) return
 
-    setActionLoadingText('Guardando modalidad de entrega y notificaciones...')
+    setActionLoadingText('Guardando modalidad de entrega y responsable...')
     setIsActionLoading(true)
 
     try {
       await api.patch(`/quotations/${selectedQuotation.id}/workflow`, {
-        status: 'ORDER_PLACED',
+        status: 'READY_FOR_PICKUP',
         deliveryType,
         pickupWorkerName: pickupWorkerName || undefined,
         notificationEmail: notificationEmail || undefined,
         sendEmailNotification,
-        notes: `Modalidad definida: ${deliveryType === 'RETIRO_SUCURSAL' ? 'Retiro en Sucursal' : 'Despacho a Domicilio/Obra'}. Responsable: ${pickupWorkerName || 'Sin asignar'}`,
+        notes: `Materiales listos para: ${deliveryType === 'RETIRO_SUCURSAL' ? `Retiro en Sucursal (Responsable: ${pickupWorkerName || 'Sin asignar'})` : 'Despacho a Domicilio/Obra'}`,
       })
 
-      showToast('Modalidad de entrega y responsable registrados exitosamente', 'success', 'Orden de Compra Lista')
+      showToast('Materiales marcados como listos para retiro/despacho y responsable notificado', 'success', 'Materiales Listos')
       setShowOcDeliveryModal(false)
       const updated = await api.get(`/quotations/${selectedQuotation.id}`)
       setSelectedQuotation(updated.data)
@@ -318,6 +316,13 @@ export default function CotizacionesPage() {
 
   const handleUpdateWorkflowStatus = async (newStatus: string) => {
     if (!selectedQuotation) return
+
+    // Al marcar "READY_FOR_PICKUP" (Materiales Listos), solicitar el responsable de retiro y modalidad si es retiro en sucursal
+    if (newStatus === 'READY_FOR_PICKUP') {
+      setShowOcDeliveryModal(true)
+      return
+    }
+
     setActionLoadingText('Actualizando estado del flujo...')
     setIsActionLoading(true)
     try {
@@ -403,10 +408,10 @@ export default function CotizacionesPage() {
   }
 
   // 5. Eliminar Flujo Cerrado / Completado / Cancelado
-  const handleDeleteQuotation = async (qId: string) => {
-    if (!confirm('¿Estás seguro de eliminar este flujo de compra? Se borrarán permanentemente sus documentos y registros asociados.')) {
-      return
-    }
+  const handleConfirmDeleteQuotation = async () => {
+    if (!deleteConfirmId) return
+    const qId = deleteConfirmId
+    setDeleteConfirmId(null)
 
     setActionLoadingText('Eliminando flujo de compra...')
     setIsActionLoading(true)
@@ -635,7 +640,7 @@ export default function CotizacionesPage() {
                   <div className="flex gap-2">
                     {(q.status === 'COMPLETED' || q.status === 'CANCELLED' || user?.role === 'SUPER_ADMIN') && (
                       <button
-                        onClick={() => handleDeleteQuotation(q.id)}
+                        onClick={() => setDeleteConfirmId(q.id)}
                         className="px-2.5 py-1.5 bg-rose-100 dark:bg-rose-950/80 text-rose-600 hover:bg-rose-200 font-bold rounded-xl transition border border-rose-300 dark:border-rose-800"
                         title="Eliminar flujo de compra"
                       >
@@ -931,7 +936,7 @@ export default function CotizacionesPage() {
                     onClick={() => handleUpdateWorkflowStatus('READY_FOR_PICKUP')}
                     className="py-2.5 bg-teal-600 hover:bg-teal-500 text-white font-bold rounded-xl text-xs transition shadow flex items-center justify-center gap-1"
                   >
-                    <span>📦</span> Marcar "Materiales Listos para Retiro/Despacho"
+                    <span>📦</span> Marcar "Materiales Listos para Retiro / Despacho"
                   </button>
                 </div>
               </div>
@@ -967,7 +972,7 @@ export default function CotizacionesPage() {
             <div className="flex justify-between items-center pt-3 border-t border-slate-200 dark:border-slate-800 shrink-0">
               <button
                 type="button"
-                onClick={() => handleDeleteQuotation(selectedQuotation.id)}
+                onClick={() => setDeleteConfirmId(selectedQuotation.id)}
                 className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs transition flex items-center gap-1"
               >
                 <span>🗑️</span> Eliminar Flujo
@@ -985,13 +990,13 @@ export default function CotizacionesPage() {
         </div>
       )}
 
-      {/* MODAL 2: DEFINICIÓN DE ENTREGA AL SUBIR ORDEN DE COMPRA (OC) */}
+      {/* MODAL 2: DEFINICIÓN DE RETIRO Y RESPONSABLE AL MARCAR MATERIALES LISTOS */}
       {showOcDeliveryModal && selectedQuotation && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 my-auto">
             <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
               <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                <span>🚚</span> Definir Modalidad de Retiro / Despacho (OC Subida)
+                <span>📦</span> Materiales Listos: Definir Modalidad de Entrega & Responsable
               </h3>
               <button onClick={() => setShowOcDeliveryModal(false)} className="text-slate-400 hover:text-white text-xl">
                 ✕
@@ -1000,35 +1005,38 @@ export default function CotizacionesPage() {
 
             <form onSubmit={handleSaveOcDelivery} className="space-y-4 text-xs">
               <p className="text-slate-600 dark:text-slate-400">
-                Al haber adjuntado la Orden de Compra, indique la modalidad de entrega acordada y el trabajador responsable para el retiro.
+                Los materiales están listos. Por favor confirme si es retiro en sucursal o despacho a domicilio, e indique el trabajador asignado para el retiro.
               </p>
 
               <div>
                 <label className="block font-bold mb-1 text-slate-700 dark:text-slate-300">
-                  Modalidad de Entrega
+                  Modalidad de Entrega *
                 </label>
                 <select
                   value={deliveryType}
                   onChange={(e) => setDeliveryType(e.target.value as any)}
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-bold text-slate-900 dark:text-white"
                 >
-                  <option value="DESPACHO_DOMICILIO">Despacho a Domicilio / Faena Obra</option>
                   <option value="RETIRO_SUCURSAL">Retiro en Sucursal / Oficina del Proveedor</option>
+                  <option value="DESPACHO_DOMICILIO">Despacho a Domicilio / Faena Obra</option>
                 </select>
               </div>
 
-              <div>
-                <label className="block font-bold mb-1 text-slate-700 dark:text-slate-300">
-                  Trabajador Responsable del Retiro
-                </label>
-                <input
-                  type="text"
-                  value={pickupWorkerName}
-                  onChange={(e) => setPickupWorkerName(e.target.value)}
-                  placeholder="Ej: Juan Pérez / Chofer Camioneta L3"
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
-                />
-              </div>
+              {deliveryType === 'RETIRO_SUCURSAL' && (
+                <div className="bg-amber-50 dark:bg-amber-950/40 p-3 rounded-xl border border-amber-200 dark:border-amber-800">
+                  <label className="block font-bold mb-1 text-amber-900 dark:text-amber-300">
+                    👤 Trabajador Responsable de Retiro en Sucursal *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={pickupWorkerName}
+                    onChange={(e) => setPickupWorkerName(e.target.value)}
+                    placeholder="Ej: Juan Pérez / Chofer Camioneta Layerthree"
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-bold"
+                  />
+                </div>
+              )}
 
               <div>
                 <label className="block font-bold mb-1 text-slate-700 dark:text-slate-300">
@@ -1062,13 +1070,13 @@ export default function CotizacionesPage() {
                   onClick={() => setShowOcDeliveryModal(false)}
                   className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl"
                 >
-                  Omitir por ahora
+                  Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow"
+                  className="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white font-bold rounded-xl shadow"
                 >
-                  Guardar y Avanzar
+                  Confirmar y Marcar Listo
                 </button>
               </div>
             </form>
@@ -1091,6 +1099,18 @@ export default function CotizacionesPage() {
           }}
         />
       )}
+
+      {/* MODAL CONFIRMACIÓN DE ELIMINACIÓN DE FLUJO */}
+      <ConfirmModal
+        isOpen={Boolean(deleteConfirmId)}
+        title="Eliminar Flujo de Compra"
+        message="¿Estás seguro de eliminar permanentemente este flujo de compra? Se borrarán todos sus ítems y documentos adjuntos asociados."
+        confirmText="Sí, Eliminar Flujo"
+        cancelText="Cancelar"
+        variant="danger"
+        onConfirm={handleConfirmDeleteQuotation}
+        onCancel={() => setDeleteConfirmId(null)}
+      />
 
       <LoadingOverlay isOpen={isActionLoading} message={actionLoadingText} />
     </div>

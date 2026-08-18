@@ -136,6 +136,24 @@ export default function InvoiceConfirmationModal({
     }
   }
 
+  const handleAddManualItem = () => {
+    setConfirmedItems((prev) => [
+      ...prev,
+      {
+        rawProductName: 'Nuevo material (ingresado manualmente)',
+        productId: '',
+        quantity: 1,
+        unitPrice: 0,
+        unitMeasure: 'UN',
+        confidenceScore: 0,
+      },
+    ])
+  }
+
+  const handleRemoveItem = (index: number) => {
+    setConfirmedItems((prev) => prev.filter((_, i) => i !== index))
+  }
+
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-4xl w-full p-5 sm:p-6 shadow-2xl space-y-5 max-h-[92vh] flex flex-col my-auto">
@@ -152,7 +170,7 @@ export default function InvoiceConfirmationModal({
               Confirmación e Ingreso de Materiales Facturados
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Verifique la coincidencia inteligente entre los ítems detectados en la factura y los productos de Bodega
+              Verifique los ítems detectados en la factura, seleccione los productos de bodega o agregue ítems faltantes manualmente.
             </p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white text-xl">
@@ -206,9 +224,18 @@ export default function InvoiceConfirmationModal({
 
           {/* Table of Extracted Items & Product Mapping */}
           <div className="space-y-2">
-            <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-              Ítems Detectados ({confirmedItems.length}) - Coincidencia con Inventario
-            </h4>
+            <div className="flex justify-between items-center">
+              <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                Ítems de Factura ({confirmedItems.length}) - Coincidencia con Inventario
+              </h4>
+              <button
+                type="button"
+                onClick={handleAddManualItem}
+                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg shadow transition flex items-center gap-1"
+              >
+                <span>➕</span> Agregar Ítem Manualmente
+              </button>
+            </div>
 
             {confirmedItems.length === 0 ? (
               <div className="p-8 text-center border border-dashed border-slate-300 dark:border-slate-800 rounded-xl text-slate-500 text-xs">
@@ -228,30 +255,48 @@ export default function InvoiceConfirmationModal({
                   return (
                     <div
                       key={idx}
-                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3.5 rounded-xl space-y-2.5 shadow-sm"
+                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3.5 rounded-xl space-y-2.5 shadow-sm relative"
                     >
                       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-1">
                           <span className="w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-[10px] flex items-center justify-center shrink-0">
                             {idx + 1}
                           </span>
-                          <div>
-                            <span className="font-bold text-xs text-slate-900 dark:text-white">
-                              {item.rawProductName}
-                            </span>
+                          <div className="flex-1">
+                            <input
+                              type="text"
+                              value={item.rawProductName}
+                              onChange={(e) => {
+                                const copy = [...confirmedItems]
+                                copy[idx].rawProductName = e.target.value
+                                setConfirmedItems(copy)
+                              }}
+                              className="font-bold text-xs text-slate-900 dark:text-white bg-transparent border-b border-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-slate-50 dark:focus:bg-slate-800 rounded px-1 w-full"
+                            />
                             <p className="text-[10px] text-slate-400">
-                              Leído de Factura | Cant: {item.quantity} {item.unitMeasure}
+                              Línea de Factura | Cantidad: {item.quantity} {item.unitMeasure}
                             </p>
                           </div>
                         </div>
 
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${badgeColor} shrink-0`}>
-                          {score >= 70
-                            ? `🟢 ${score}% Coincidencia`
-                            : score >= 30
-                            ? `🟡 ${score}% Sugerido`
-                            : `⚪ Sin coincidencia`}
-                        </span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${badgeColor}`}>
+                            {score >= 70
+                              ? `🟢 ${score}% Coincidencia`
+                              : score >= 30
+                              ? `🟡 ${score}% Sugerido`
+                              : `⚪ Sin coincidencia`}
+                          </span>
+
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveItem(idx)}
+                            className="text-rose-500 hover:text-rose-700 text-xs font-bold p-1"
+                            title="Eliminar fila"
+                          >
+                            ✕
+                          </button>
+                        </div>
                       </div>
 
                       {/* Mapping row */}
