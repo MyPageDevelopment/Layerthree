@@ -161,7 +161,7 @@ export class QuotationsService implements OnModuleInit {
         code,
         customCode: dto.customCode || null,
         destinationType: (dto.destinationType as any) || 'STOCK_BODEGA',
-        deliveryType: (dto.deliveryType as any) || 'DESPACHO_DOMICILIO',
+        deliveryType: (dto.deliveryType as any) || null,
         title: dto.title,
         projectId: dto.projectId || null,
         projectName: dto.projectName || (dto.destinationType === 'PROYECTO' ? 'Proyecto' : 'Stock de Bodega'),

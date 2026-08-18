@@ -7,6 +7,7 @@ import type { User, Product } from '@/types'
 import LoadingOverlay from '@/components/LoadingOverlay'
 import InvoiceConfirmationModal, { ParsedInvoiceData } from '@/components/InvoiceConfirmationModal'
 import ConfirmModal from '@/components/ConfirmModal'
+import BulkDownloadModal from '@/components/BulkDownloadModal'
 import { useToast } from '@/components/ToastNotification'
 import Tesseract from 'tesseract.js'
 
@@ -117,6 +118,9 @@ export default function CotizacionesPage() {
 
   // Modal 2: Subida de OC / Tramitación & Configuración de Entrega
   const [showOcDeliveryModal, setShowOcDeliveryModal] = useState(false)
+
+  // Modal 3: Descarga Masiva ZIP
+  const [showBulkDownloadModal, setShowBulkDownloadModal] = useState(false)
   const [deliveryType, setDeliveryType] = useState<'DESPACHO_DOMICILIO' | 'RETIRO_SUCURSAL'>('DESPACHO_DOMICILIO')
   const [pickupWorkerName, setPickupWorkerName] = useState('')
   const [notificationEmail, setNotificationEmail] = useState('')
@@ -505,12 +509,20 @@ export default function CotizacionesPage() {
           </p>
         </div>
 
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold shadow-lg transition active:scale-95 flex items-center gap-1.5 self-start sm:self-auto whitespace-nowrap"
-        >
-          <span>➕</span> Iniciar Flujo de Compra
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-auto">
+          <button
+            onClick={() => setShowBulkDownloadModal(true)}
+            className="bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold shadow-md transition active:scale-95 flex items-center gap-1.5 whitespace-nowrap"
+          >
+            <span>📦</span> Descarga Masiva (ZIP)
+          </button>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold shadow-lg transition active:scale-95 flex items-center gap-1.5 whitespace-nowrap"
+          >
+            <span>➕</span> Iniciar Flujo de Compra
+          </button>
+        </div>
       </div>
 
       {/* Tabs Filter & Search */}
@@ -614,7 +626,7 @@ export default function CotizacionesPage() {
                           ? q.deliveryType === 'RETIRO_SUCURSAL'
                             ? 'Retiro en Sucursal'
                             : 'Despacho a Domicilio'
-                          : 'Por definir (Al subir OC)'}
+                          : 'Por definir (Al estar materiales listos)'}
                       </span>
                     </p>
                     {q.pickupWorkerName && (
@@ -1110,6 +1122,13 @@ export default function CotizacionesPage() {
         variant="danger"
         onConfirm={handleConfirmDeleteQuotation}
         onCancel={() => setDeleteConfirmId(null)}
+      />
+
+      {/* MODAL DESCARGA MASIVA ZIP */}
+      <BulkDownloadModal
+        isOpen={showBulkDownloadModal}
+        onClose={() => setShowBulkDownloadModal(false)}
+        quotations={quotations}
       />
 
       <LoadingOverlay isOpen={isActionLoading} message={actionLoadingText} />

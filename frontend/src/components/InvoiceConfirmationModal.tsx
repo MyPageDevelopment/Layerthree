@@ -136,6 +136,21 @@ export default function InvoiceConfirmationModal({
     }
   }
 
+  const handleSelectAndAddProduct = (product: any) => {
+    setConfirmedItems((prev) => [
+      ...prev,
+      {
+        rawProductName: product.name,
+        productId: product.id,
+        quantity: 1,
+        unitPrice: product.unitPrice || product.price || 0,
+        unitMeasure: product.unit || product.unitMeasure || 'UN',
+        confidenceScore: 100,
+      },
+    ])
+    showToast(`Material "${product.name}" agregado a la lista de recepción`, 'info')
+  }
+
   const handleAddManualItem = () => {
     setConfirmedItems((prev) => [
       ...prev,
@@ -170,7 +185,7 @@ export default function InvoiceConfirmationModal({
               Confirmación e Ingreso de Materiales Facturados
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Verifique los ítems detectados en la factura, seleccione los productos de bodega o agregue ítems faltantes manualmente.
+              Verifique los ítems detectados en la factura, seleccione los productos de bodega o busque materiales para agregarlos automáticamente.
             </p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white text-xl">
@@ -179,6 +194,30 @@ export default function InvoiceConfirmationModal({
         </div>
 
         <form onSubmit={handleSubmitReceipt} className="space-y-4 overflow-y-auto pr-1 flex-1">
+          {/* Fast Product Search & Auto-Add Bar */}
+          <div className="bg-emerald-50 dark:bg-emerald-950/40 p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-800 space-y-2">
+            <div className="flex justify-between items-center">
+              <label className="text-xs font-extrabold text-emerald-900 dark:text-emerald-300 flex items-center gap-1.5">
+                <span>➕</span> Buscar y Agregar Material del Inventario (Agregado Automático):
+              </label>
+              <button
+                type="button"
+                onClick={handleAddManualItem}
+                className="text-[11px] text-emerald-700 dark:text-emerald-400 font-bold hover:underline flex items-center gap-1"
+              >
+                <span>✏️</span> Línea libre en blanco
+              </button>
+            </div>
+            <SearchableProductSelect
+              products={products}
+              selectedProductId=""
+              onSelectProduct={(p) => {
+                if (p) handleSelectAndAddProduct(p)
+              }}
+              placeholder="🔍 Escriba código SKU o nombre del material para agregarlo de inmediato..."
+            />
+          </div>
+
           {/* Header Metadata Inputs */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
             <div>
@@ -224,18 +263,9 @@ export default function InvoiceConfirmationModal({
 
           {/* Table of Extracted Items & Product Mapping */}
           <div className="space-y-2">
-            <div className="flex justify-between items-center">
-              <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                Ítems de Factura ({confirmedItems.length}) - Coincidencia con Inventario
-              </h4>
-              <button
-                type="button"
-                onClick={handleAddManualItem}
-                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg shadow transition flex items-center gap-1"
-              >
-                <span>➕</span> Agregar Ítem Manualmente
-              </button>
-            </div>
+            <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+              Ítems de Factura a Ingresar ({confirmedItems.length})
+            </h4>
 
             {confirmedItems.length === 0 ? (
               <div className="p-8 text-center border border-dashed border-slate-300 dark:border-slate-800 rounded-xl text-slate-500 text-xs">
