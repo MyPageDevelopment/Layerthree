@@ -6,6 +6,8 @@ import { getUser } from '@/lib/auth'
 import type { User, Product } from '@/types'
 import LoadingOverlay from '@/components/LoadingOverlay'
 import InvoiceConfirmationModal, { ParsedInvoiceData } from '@/components/InvoiceConfirmationModal'
+import { useToast } from '@/components/ToastNotification'
+import Tesseract from 'tesseract.js'
 
 interface QuotationItem {
   id?: string
@@ -13,19 +15,19 @@ interface QuotationItem {
   productId?: string
   quantity: number
   unitMeasure?: string
-  estimatedUnitPrice?: number;
+  estimatedUnitPrice?: number
   supplier?: string
   itemNotes?: string
   linkUrl?: string
 }
 
 interface PurchaseDocument {
-  id: string;
-  type: 'COTIZACION' | 'ORDEN_COMPRA' | 'FACTURA' | 'OTRO';
-  name: string;
-  url: string;
-  uploadedAt: string;
-  uploadedBy?: string;
+  id: string
+  type: 'COTIZACION' | 'ORDEN_COMPRA' | 'FACTURA' | 'OTRO'
+  name: string
+  url: string
+  uploadedAt: string
+  uploadedBy?: string
 }
 
 interface QuotationRequest {
@@ -33,7 +35,7 @@ interface QuotationRequest {
   code: string
   customCode?: string
   destinationType: 'PROYECTO' | 'STOCK_BODEGA'
-  deliveryType: 'RETIRO_SUCURSAL' | 'DESPACHO_DOMICILIO'
+  deliveryType?: 'RETIRO_SUCURSAL' | 'DESPACHO_DOMICILIO'
   title: string
   projectId?: string
   projectName?: string
@@ -84,6 +86,7 @@ interface QuotationRequest {
 type StatusFilter = 'ALL' | 'ACTIVE' | 'PENDING_QUOTE' | 'ORDER_PLACED' | 'IN_PROCESSING' | 'READY_FOR_PICKUP' | 'COMPLETED' | 'CANCELLED'
 
 export default function CotizacionesPage() {
+  const { showToast } = useToast()
   const [user, setUser] = useState<User | null>(null)
   const [usersList, setUsersList] = useState<User[]>([])
   const [quotations, setQuotations] = useState<QuotationRequest[]>([])
@@ -92,15 +95,11 @@ export default function CotizacionesPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL')
   const [searchTerm, setSearchTerm] = useState('')
 
-  // Modal Nuevo Flujo de Compra
+  // Modal 1: Iniciar Flujo de Compra (Solo Cotización Inicial)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [destinationType, setDestinationType] = useState<'STOCK_BODEGA' | 'PROYECTO'>('STOCK_BODEGA')
   const [customCode, setCustomCode] = useState('')
   const [newTitle, setNewTitle] = useState('')
-  const [deliveryType, setDeliveryType] = useState<'DESPACHO_DOMICILIO' | 'RETIRO_SUCURSAL'>('DESPACHO_DOMICILIO')
-  const [pickupWorkerId, setPickupWorkerId] = useState('')
-  const [pickupWorkerName, setPickupWorkerName] = useState('')
-  const [notificationEmail, setNotificationEmail] = useState('')
   const [newProjectName, setNewProjectName] = useState('')
   const [newNotes, setNewNotes] = useState('')
   const [newAttachmentUrl, setNewAttachmentUrl] = useState('')
@@ -115,16 +114,18 @@ export default function CotizacionesPage() {
   const [uploadDocName, setUploadDocName] = useState('')
   const [uploadDocUrl, setUploadDocUrl] = useState('')
 
-  // Status & Tracking Update Modal
-  const [workflowStatus, setWorkflowStatus] = useState<string>('IN_PROCESSING')
-  const [sendEmailNotification, setSendEmailNotification] = useState(false)
-  const [workflowNotes, setWorkflowNotes] = useState('')
+  // Modal 2: Subida de OC / Tramitación & Configuración de Entrega
+  const [showOcDeliveryModal, setShowOcDeliveryModal] = useState(false)
+  const [deliveryType, setDeliveryType] = useState<'DESPACHO_DOMICILIO' | 'RETIRO_SUCURSAL'>('DESPACHO_DOMICILIO')
+  const [pickupWorkerName, setPickupWorkerName] = useState('')
+  const [notificationEmail, setNotificationEmail] = useState('')
+  const [sendEmailNotification, setSendEmailNotification] = useState(true)
 
-  // OCR Modal State
+  // OCR Modal State (Para Facturas en Imagen / PDF)
   const [showInvoiceModal, setShowInvoiceModal] = useState(false)
   const [parsedInvoiceData, setParsedInvoiceData] = useState<ParsedInvoiceData | null>(null)
-  const [ocrRawText, setOcrRawText] = useState('')
   const [isParsingOcr, setIsParsingOcr] = useState(false)
+  const [ocrProgressText, setOcrProgressText] = useState('')
 
   const [isActionLoading, setIsActionLoading] = useState(false)
   const [actionLoadingText, setActionLoadingText] = useState('Procesando...')
@@ -143,7 +144,7 @@ export default function CotizacionesPage() {
         setUsersList(res.data)
       }
     } catch {
-      // Ignore if users list fails
+      // Ignore
     }
   }
 
@@ -188,13 +189,14 @@ export default function CotizacionesPage() {
     const file = e.target.files?.[0]
     if (!file) return
     if (file.size > 15 * 1024 * 1024) {
-      alert('El archivo no debe superar los 15MB')
+      showToast('El archivo no debe superar los 15MB', 'warning', 'Archivo Pesado')
       return
     }
     const reader = new FileReader()
     reader.onload = (evt) => {
       setNewAttachmentUrl(evt.target?.result as string)
       setNewAttachmentName(file.name)
+      showToast(`Archivo "${file.name}" adjuntado al flujo`, 'info')
     }
     reader.readAsDataURL(file)
   }
@@ -203,7 +205,7 @@ export default function CotizacionesPage() {
     const file = e.target.files?.[0]
     if (!file) return
     if (file.size > 15 * 1024 * 1024) {
-      alert('El archivo no debe superar los 15MB')
+      showToast('El archivo no debe superar los 15MB', 'warning')
       return
     }
     const reader = new FileReader()
@@ -216,7 +218,7 @@ export default function CotizacionesPage() {
 
   const handleConfirmDocUpload = async () => {
     if (!selectedQuotation || !uploadDocUrl || !uploadDocName) {
-      alert('Debes seleccionar un archivo para adjuntar.')
+      showToast('Debes seleccionar un archivo para adjuntar.', 'warning')
       return
     }
     setActionLoadingText('Subiendo y vinculando documento...')
@@ -227,24 +229,32 @@ export default function CotizacionesPage() {
         fileName: uploadDocName,
         fileUrl: uploadDocUrl,
       })
-      alert(`Documento (${uploadDocType}) adjuntado exitosamente al flujo.`)
+
+      showToast(`Documento (${uploadDocType}) adjuntado exitosamente.`, 'success', 'Documento Guardado')
       setUploadDocUrl('')
       setUploadDocName('')
       const updated = await api.get(`/quotations/${selectedQuotation.id}`)
       setSelectedQuotation(updated.data)
+
+      // Si subió Orden de Compra (OC), abrir modal para definir modalidad de entrega y responsable
+      if (uploadDocType === 'ORDEN_COMPRA') {
+        setShowOcDeliveryModal(true)
+      }
+
       fetchQuotations()
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Error al adjuntar documento')
+      showToast(err.response?.data?.message || 'Error al adjuntar documento', 'error')
     } finally {
       setIsActionLoading(false)
     }
   }
 
+  // 1. Iniciar Flujo de Compra (Formulario enfocado exclusivamente en Cotización Inicial)
   const handleCreateQuotation = async (e: React.FormEvent) => {
     e.preventDefault()
 
     const validItems = newItems.filter((i) => i.productName.trim().length > 0)
-    setActionLoadingText('Iniciando flujo de compra...')
+    setActionLoadingText('Iniciando flujo de cotización y compra...')
     setIsActionLoading(true)
 
     try {
@@ -252,10 +262,6 @@ export default function CotizacionesPage() {
         title: newTitle,
         customCode: customCode || undefined,
         destinationType,
-        deliveryType,
-        pickupWorkerId: pickupWorkerId || undefined,
-        pickupWorkerName: pickupWorkerName || undefined,
-        notificationEmail: notificationEmail || undefined,
         projectName: destinationType === 'PROYECTO' ? newProjectName : 'Stock de Bodega',
         notes: newNotes,
         attachmentUrl: newAttachmentUrl || undefined,
@@ -263,6 +269,7 @@ export default function CotizacionesPage() {
         items: validItems,
       })
 
+      showToast(`Flujo de compra "${newTitle}" iniciado exitosamente`, 'success', 'Flujo Creado')
       setShowCreateModal(false)
       setCustomCode('')
       setNewTitle('')
@@ -270,13 +277,40 @@ export default function CotizacionesPage() {
       setNewNotes('')
       setNewAttachmentUrl('')
       setNewAttachmentName('')
-      setPickupWorkerId('')
-      setPickupWorkerName('')
-      setNotificationEmail('')
       setNewItems([{ productName: '', quantity: 1, unitMeasure: 'UN', linkUrl: '', itemNotes: '' }])
       fetchQuotations()
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Error al crear flujo de compra')
+      showToast(err.response?.data?.message || 'Error al crear flujo de compra', 'error')
+    } finally {
+      setIsActionLoading(false)
+    }
+  }
+
+  // 2. Guardar Modalidad de Retiro / Despacho y Responsable (Al subir OC o en tramitación)
+  const handleSaveOcDelivery = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedQuotation) return
+
+    setActionLoadingText('Guardando modalidad de entrega y notificaciones...')
+    setIsActionLoading(true)
+
+    try {
+      await api.patch(`/quotations/${selectedQuotation.id}/workflow`, {
+        status: 'ORDER_PLACED',
+        deliveryType,
+        pickupWorkerName: pickupWorkerName || undefined,
+        notificationEmail: notificationEmail || undefined,
+        sendEmailNotification,
+        notes: `Modalidad definida: ${deliveryType === 'RETIRO_SUCURSAL' ? 'Retiro en Sucursal' : 'Despacho a Domicilio/Obra'}. Responsable: ${pickupWorkerName || 'Sin asignar'}`,
+      })
+
+      showToast('Modalidad de entrega y responsable registrados exitosamente', 'success', 'Orden de Compra Lista')
+      setShowOcDeliveryModal(false)
+      const updated = await api.get(`/quotations/${selectedQuotation.id}`)
+      setSelectedQuotation(updated.data)
+      fetchQuotations()
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Error actualizando modalidad de retiro', 'error')
     } finally {
       setIsActionLoading(false)
     }
@@ -284,67 +318,109 @@ export default function CotizacionesPage() {
 
   const handleUpdateWorkflowStatus = async (newStatus: string) => {
     if (!selectedQuotation) return
-    setActionLoadingText('Actualizando seguimiento del pedido...')
+    setActionLoadingText('Actualizando estado del flujo...')
     setIsActionLoading(true)
     try {
       await api.patch(`/quotations/${selectedQuotation.id}/workflow`, {
         status: newStatus,
-        deliveryType: selectedQuotation.deliveryType,
-        pickupWorkerId: selectedQuotation.pickupWorkerId,
-        pickupWorkerName: selectedQuotation.pickupWorkerName,
-        notificationEmail: selectedQuotation.notificationEmail,
+        deliveryType: selectedQuotation.deliveryType || deliveryType,
+        pickupWorkerName: selectedQuotation.pickupWorkerName || pickupWorkerName,
+        notificationEmail: selectedQuotation.notificationEmail || notificationEmail,
         sendEmailNotification,
-        notes: workflowNotes,
       })
-      alert(`Estado del pedido actualizado a: ${newStatus}`)
+
+      showToast(`El flujo cambió de estado a: ${newStatus}`, 'info', 'Estado Actualizado')
       const updated = await api.get(`/quotations/${selectedQuotation.id}`)
       setSelectedQuotation(updated.data)
-      setWorkflowNotes('')
       fetchQuotations()
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Error al actualizar flujo')
+      showToast(err.response?.data?.message || 'Error al actualizar flujo', 'error')
     } finally {
       setIsActionLoading(false)
     }
   }
 
-  // Handle Invoice OCR parsing
-  const handleProcessInvoiceOcr = async (fileOrText?: string) => {
-    if (!selectedQuotation) return
+  // 4. Reconocimiento OCR de Facturas en Formato Imagen (.png, .jpg, .jpeg, .webp) o PDF
+  const handleProcessInvoiceImageOrPdf = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !selectedQuotation) return
+
     setIsParsingOcr(true)
-    try {
-      const res = await api.post('/quotations/parse-invoice-text', {
-        rawText: fileOrText || ocrRawText,
+    setOcrProgressText('🔍 Leyendo imagen de Factura con motor OCR...')
+
+    const isImage = file.type.startsWith('image/') || file.name.match(/\.(jpg|jpeg|png|webp)$/i)
+
+    let extractedText = ''
+
+    if (isImage) {
+      try {
+        setOcrProgressText('🖼️ Reconociendo texto de la imagen de Factura...')
+        const result = await Tesseract.recognize(file, 'spa', {
+          logger: (m) => {
+            if (m.status === 'recognizing text') {
+              setOcrProgressText(`🖼️ Analizando caracteres de la imagen: ${Math.round(m.progress * 100)}%`)
+            }
+          },
+        })
+        extractedText = result.data.text
+      } catch (ocrErr) {
+        console.warn('Error en Tesseract OCR local, reintentando con eng/fallback:', ocrErr)
+        try {
+          const fbResult = await Tesseract.recognize(file, 'eng')
+          extractedText = fbResult.data.text
+        } catch {
+          showToast('No se pudo procesar la imagen de la factura. Intente con una imagen con mayor nitidez.', 'warning')
+        }
+      }
+    } else {
+      // PDF or text format fallback
+      const reader = new FileReader()
+      extractedText = await new Promise((resolve) => {
+        reader.onload = (evt) => resolve((evt.target?.result as string) || '')
+        reader.readAsText(file)
       })
+    }
+
+    if (!extractedText) {
+      extractedText = file.name
+    }
+
+    try {
+      setOcrProgressText('🧠 Cruzando ítems de la factura con el inventario de bodega...')
+      const res = await api.post('/quotations/parse-invoice-text', {
+        rawText: extractedText,
+      })
+
       setParsedInvoiceData(res.data)
       setShowInvoiceModal(true)
+      showToast('Factura leída exitosamente por OCR. Verifique las coincidencias de bodega.', 'success', 'OCR Completado')
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Error analizando texto OCR de la factura')
+      showToast(err.response?.data?.message || 'Error al analizar la factura', 'error')
     } finally {
       setIsParsingOcr(false)
+      setOcrProgressText('')
     }
   }
 
-  const handleInvoiceFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    const reader = new FileReader()
-    reader.onload = async (evt) => {
-      const text = evt.target?.result as string
-      // Pre-upload document
-      if (selectedQuotation) {
-        try {
-          await api.post(`/quotations/${selectedQuotation.id}/documents`, {
-            documentType: 'FACTURA',
-            fileName: file.name,
-            fileUrl: text,
-          })
-        } catch {}
-      }
-      handleProcessInvoiceOcr(text)
+  // 5. Eliminar Flujo Cerrado / Completado / Cancelado
+  const handleDeleteQuotation = async (qId: string) => {
+    if (!confirm('¿Estás seguro de eliminar este flujo de compra? Se borrarán permanentemente sus documentos y registros asociados.')) {
+      return
     }
-    reader.readAsText(file)
+
+    setActionLoadingText('Eliminando flujo de compra...')
+    setIsActionLoading(true)
+
+    try {
+      await api.delete(`/quotations/${qId}`)
+      showToast('El flujo de compra y sus documentos han sido eliminados del sistema.', 'success', 'Flujo Eliminado')
+      setSelectedQuotation(null)
+      fetchQuotations()
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Error al eliminar el flujo de compra', 'error')
+    } finally {
+      setIsActionLoading(false)
+    }
   }
 
   const getStatusBadge = (status: QuotationRequest['status']) => {
@@ -420,7 +496,7 @@ export default function CotizacionesPage() {
             <span>🛍️</span> Flujo de Compras & Cotizaciones
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-            Gestión completa de adquisiciones, repositorio documental (Cotización, OC, Factura) y recepción con OCR
+            Modulo para iniciar cotizaciones, almacenar repositorio documental (Cotización, OC, Factura) e ingresar stock con OCR
           </p>
         </div>
 
@@ -512,11 +588,9 @@ export default function CotizacionesPage() {
               >
                 <div className="space-y-3">
                   <div className="flex justify-between items-start">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
-                        {q.customCode ? `${q.code} (${q.customCode})` : q.code}
-                      </span>
-                    </div>
+                    <span className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
+                      {q.customCode ? `${q.code} (${q.customCode})` : q.code}
+                    </span>
                     {getStatusBadge(q.status)}
                   </div>
 
@@ -531,7 +605,11 @@ export default function CotizacionesPage() {
                     <p className="text-slate-600 dark:text-slate-400 flex items-center gap-1">
                       <span>🚚 Entrega:</span>
                       <span className="font-bold text-slate-800 dark:text-slate-200">
-                        {q.deliveryType === 'RETIRO_SUCURSAL' ? 'Retiro en Sucursal' : 'Despacho a Domicilio'}
+                        {q.deliveryType
+                          ? q.deliveryType === 'RETIRO_SUCURSAL'
+                            ? 'Retiro en Sucursal'
+                            : 'Despacho a Domicilio'
+                          : 'Por definir (Al subir OC)'}
                       </span>
                     </p>
                     {q.pickupWorkerName && (
@@ -554,12 +632,23 @@ export default function CotizacionesPage() {
                   <span className="text-slate-400 font-mono">
                     {new Date(q.createdAt).toLocaleDateString('es-CL')}
                   </span>
-                  <button
-                    onClick={() => setSelectedQuotation(q)}
-                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition shadow flex items-center gap-1"
-                  >
-                    <span>👁️</span> Abrir Flujo / Documentos
-                  </button>
+                  <div className="flex gap-2">
+                    {(q.status === 'COMPLETED' || q.status === 'CANCELLED' || user?.role === 'SUPER_ADMIN') && (
+                      <button
+                        onClick={() => handleDeleteQuotation(q.id)}
+                        className="px-2.5 py-1.5 bg-rose-100 dark:bg-rose-950/80 text-rose-600 hover:bg-rose-200 font-bold rounded-xl transition border border-rose-300 dark:border-rose-800"
+                        title="Eliminar flujo de compra"
+                      >
+                        🗑️
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setSelectedQuotation(q)}
+                      className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition shadow flex items-center gap-1"
+                    >
+                      <span>👁️</span> Abrir Flujo
+                    </button>
+                  </div>
                 </div>
               </div>
             )
@@ -567,18 +656,15 @@ export default function CotizacionesPage() {
         </div>
       )}
 
-      {/* MODAL CREAR NUEVO FLUJO DE COMPRA */}
+      {/* MODAL 1: CREAR NUEVO FLUJO DE COMPRA (Formulario Exclusivo de Cotización Inicial) */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] my-auto flex flex-col">
             <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
               <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <span>➕</span> Iniciar Flujo de Compra
+                <span>➕</span> Iniciar Flujo de Compra (Cotización Inicial)
               </h3>
-              <button
-                onClick={() => setShowCreateModal(false)}
-                className="text-slate-400 hover:text-white text-xl"
-              >
+              <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-white text-xl">
                 ✕
               </button>
             </div>
@@ -613,14 +699,14 @@ export default function CotizacionesPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-semibold mb-1 text-slate-700 dark:text-slate-300">
-                    Título / Nombre del Pedido *
+                    Título / Nombre de la Cotización *
                   </label>
                   <input
                     type="text"
                     required
                     value={newTitle}
                     onChange={(e) => setNewTitle(e.target.value)}
-                    placeholder="Ej: Compra Abrazaderas Caddy y Conectores EMT"
+                    placeholder="Ej: Cotización Abrazaderas Caddy y Conectores EMT"
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
                   />
                 </div>
@@ -633,7 +719,7 @@ export default function CotizacionesPage() {
                     type="text"
                     value={customCode}
                     onChange={(e) => setCustomCode(e.target.value)}
-                    placeholder="Ej: COMPRA-ESTEC-001"
+                    placeholder="Ej: COT-ESTEC-001"
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-mono text-slate-900 dark:text-white"
                   />
                 </div>
@@ -655,53 +741,10 @@ export default function CotizacionesPage() {
                 </div>
               )}
 
-              {/* Delivery options */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold mb-1 text-slate-700 dark:text-slate-300">
-                    Modalidad de Entrega
-                  </label>
-                  <select
-                    value={deliveryType}
-                    onChange={(e) => setDeliveryType(e.target.value as any)}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
-                  >
-                    <option value="DESPACHO_DOMICILIO">Despacho a Domicilio / Obra</option>
-                    <option value="RETIRO_SUCURSAL">Retiro en Sucursal / Oficina</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-semibold mb-1 text-slate-700 dark:text-slate-300">
-                    Trabajador Responsable de Retiro (Opcional)
-                  </label>
-                  <input
-                    type="text"
-                    value={pickupWorkerName}
-                    onChange={(e) => setPickupWorkerName(e.target.value)}
-                    placeholder="Nombre del trabajador encargado"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-semibold mb-1 text-slate-700 dark:text-slate-300">
-                  Correo para Notificación Automática (Opcional)
-                </label>
-                <input
-                  type="email"
-                  value={notificationEmail}
-                  onChange={(e) => setNotificationEmail(e.target.value)}
-                  placeholder="ejemplo@layerthree.cl"
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
-                />
-              </div>
-
               {/* Initial document upload */}
               <div className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
                 <label className="block font-semibold text-xs text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <span>📎</span> Adjuntar Documento de Cotización Inicial (Word, PDF, Excel, Imagen)
+                  <span>📎</span> Adjuntar Documento o Planilla de Cotización (PDF, Word, Excel, Imagen)
                 </label>
                 <input
                   type="file"
@@ -722,7 +765,7 @@ export default function CotizacionesPage() {
                   rows={2}
                   value={newNotes}
                   onChange={(e) => setNewNotes(e.target.value)}
-                  placeholder="Notas adicionales para el flujo de compra..."
+                  placeholder="Notas adicionales para el proveedor o bodeguero..."
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
                 />
               </div>
@@ -764,10 +807,7 @@ export default function CotizacionesPage() {
                   {selectedQuotation.title}
                 </h3>
               </div>
-              <button
-                onClick={() => setSelectedQuotation(null)}
-                className="text-slate-400 hover:text-white text-xl"
-              >
+              <button onClick={() => setSelectedQuotation(null)} className="text-slate-400 hover:text-white text-xl">
                 ✕
               </button>
             </div>
@@ -779,7 +819,7 @@ export default function CotizacionesPage() {
                   1. Cotización
                 </div>
                 <div className={`p-2 rounded-lg font-bold ${selectedQuotation.status === 'ORDER_PLACED' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'}`}>
-                  2. Orden de Compra
+                  2. Orden de Compra (OC)
                 </div>
                 <div className={`p-2 rounded-lg font-bold ${selectedQuotation.status === 'IN_PROCESSING' || selectedQuotation.status === 'READY_FOR_PICKUP' ? 'bg-sky-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'}`}>
                   3. Tramitación / Retiro
@@ -894,48 +934,32 @@ export default function CotizacionesPage() {
                     <span>📦</span> Marcar "Materiales Listos para Retiro/Despacho"
                   </button>
                 </div>
-
-                <div className="flex items-center space-x-2 pt-1">
-                  <input
-                    type="checkbox"
-                    id="notifyMailCheck"
-                    checked={sendEmailNotification}
-                    onChange={(e) => setSendEmailNotification(e.target.checked)}
-                    className="rounded text-blue-600 focus:ring-blue-500"
-                  />
-                  <label htmlFor="notifyMailCheck" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Enviar correo de notificación automática al trabajador responsable ({selectedQuotation.pickupWorkerName || selectedQuotation.notificationEmail || 'Correo designado'})
-                  </label>
-                </div>
               </div>
 
               {/* OCR Invoice Upload & Recepción Final Panel */}
               <div className="bg-emerald-50 dark:bg-emerald-950/40 p-4 rounded-xl border border-emerald-200 dark:border-emerald-800 space-y-3">
                 <h4 className="font-extrabold text-sm text-emerald-900 dark:text-emerald-300 flex items-center gap-1.5">
-                  <span>📄</span> Carga de Factura & Reconocimiento OCR de Productos
+                  <span>📄</span> Carga de Factura en Imagen / PDF con OCR de Productos
                 </h4>
 
                 <p className="text-xs text-emerald-800 dark:text-emerald-300">
-                  Adjunte el archivo de la Factura Electrónica (PDF/Imagen/Texto). El sistema extraerá automáticamente el Folio, RUT e ítems comprados, sugiriendo la coincidencia inteligente con el inventario de la bodega.
+                  Adjunte la **imagen (.png, .jpg) o archivo de la Factura Electrónica**. El motor OCR extraerá automáticamente el Folio, RUT, Razón Social e Ítems comprados para actualizar la bodega.
                 </p>
 
                 <div className="flex flex-col sm:flex-row gap-3 items-center">
                   <input
                     type="file"
-                    onChange={handleInvoiceFileChange}
-                    accept=".pdf,.png,.jpg,.jpeg,.txt"
+                    onChange={handleProcessInvoiceImageOrPdf}
+                    accept=".pdf,.png,.jpg,.jpeg,.webp,.txt"
                     className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-600 file:text-white hover:file:bg-emerald-500 cursor-pointer"
                   />
-
-                  <button
-                    type="button"
-                    onClick={() => handleProcessInvoiceOcr()}
-                    disabled={isParsingOcr}
-                    className="w-full sm:w-auto px-5 py-2 bg-emerald-700 hover:bg-emerald-600 text-white font-bold rounded-xl text-xs transition shadow flex items-center justify-center gap-1 whitespace-nowrap"
-                  >
-                    {isParsingOcr ? 'Procesando OCR...' : '🔍 Ejecutar Mapeo Inteligente'}
-                  </button>
                 </div>
+
+                {isParsingOcr && (
+                  <div className="p-3 bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 rounded-xl font-bold text-xs animate-pulse flex items-center gap-2">
+                    <span className="animate-spin text-sm">🔄</span> {ocrProgressText || 'Procesando lectura OCR de la imagen de factura...'}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -943,10 +967,10 @@ export default function CotizacionesPage() {
             <div className="flex justify-between items-center pt-3 border-t border-slate-200 dark:border-slate-800 shrink-0">
               <button
                 type="button"
-                onClick={() => handleUpdateWorkflowStatus('CANCELLED')}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs transition"
+                onClick={() => handleDeleteQuotation(selectedQuotation.id)}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs transition flex items-center gap-1"
               >
-                🚫 Cerrar / Cancelar Flujo
+                <span>🗑️</span> Eliminar Flujo
               </button>
 
               <button
@@ -957,6 +981,97 @@ export default function CotizacionesPage() {
                 Cerrar Ventana
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: DEFINICIÓN DE ENTREGA AL SUBIR ORDEN DE COMPRA (OC) */}
+      {showOcDeliveryModal && selectedQuotation && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 my-auto">
+            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
+              <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                <span>🚚</span> Definir Modalidad de Retiro / Despacho (OC Subida)
+              </h3>
+              <button onClick={() => setShowOcDeliveryModal(false)} className="text-slate-400 hover:text-white text-xl">
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveOcDelivery} className="space-y-4 text-xs">
+              <p className="text-slate-600 dark:text-slate-400">
+                Al haber adjuntado la Orden de Compra, indique la modalidad de entrega acordada y el trabajador responsable para el retiro.
+              </p>
+
+              <div>
+                <label className="block font-bold mb-1 text-slate-700 dark:text-slate-300">
+                  Modalidad de Entrega
+                </label>
+                <select
+                  value={deliveryType}
+                  onChange={(e) => setDeliveryType(e.target.value as any)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-bold text-slate-900 dark:text-white"
+                >
+                  <option value="DESPACHO_DOMICILIO">Despacho a Domicilio / Faena Obra</option>
+                  <option value="RETIRO_SUCURSAL">Retiro en Sucursal / Oficina del Proveedor</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold mb-1 text-slate-700 dark:text-slate-300">
+                  Trabajador Responsable del Retiro
+                </label>
+                <input
+                  type="text"
+                  value={pickupWorkerName}
+                  onChange={(e) => setPickupWorkerName(e.target.value)}
+                  placeholder="Ej: Juan Pérez / Chofer Camioneta L3"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold mb-1 text-slate-700 dark:text-slate-300">
+                  Correo Electrónico para Notificaciones
+                </label>
+                <input
+                  type="email"
+                  value={notificationEmail}
+                  onChange={(e) => setNotificationEmail(e.target.value)}
+                  placeholder="ejemplo@layerthree.cl"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div className="flex items-center space-x-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="sendEmailCheck"
+                  checked={sendEmailNotification}
+                  onChange={(e) => setSendEmailNotification(e.target.checked)}
+                  className="rounded text-blue-600 focus:ring-blue-500"
+                />
+                <label htmlFor="sendEmailCheck" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Enviar correo de notificación con las instrucciones de retiro
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowOcDeliveryModal(false)}
+                  className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl"
+                >
+                  Omitir por ahora
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow"
+                >
+                  Guardar y Avanzar
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

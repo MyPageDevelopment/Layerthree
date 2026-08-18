@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import api from '@/lib/api'
 import SearchableProductSelect from '@/components/SearchableProductSelect'
+import { useToast } from '@/components/ToastNotification'
 import type { Product } from '@/types'
 
 export interface ParsedItem {
@@ -45,6 +46,7 @@ export default function InvoiceConfirmationModal({
   products,
   onConfirmed,
 }: InvoiceConfirmationModalProps) {
+  const { showToast } = useToast()
   const [invoiceNumber, setInvoiceNumber] = useState('')
   const [supplierRut, setSupplierRut] = useState('')
   const [supplierName, setSupplierName] = useState('')
@@ -124,11 +126,11 @@ export default function InvoiceConfirmationModal({
         })),
       })
 
-      alert('¡Recepción confirmada! El stock de materiales ha sido actualizado en la Bodega.')
+      showToast('¡Recepción confirmada! El stock de materiales ha sido actualizado en la Bodega.', 'success', 'Inventario Actualizado')
       onConfirmed()
       onClose()
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Error al confirmar la recepción de factura')
+      showToast(err.response?.data?.message || 'Error al confirmar la recepción de factura', 'error')
     } finally {
       setSubmitting(false)
     }

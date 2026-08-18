@@ -523,4 +523,16 @@ export class QuotationsService implements OnModuleInit {
 
     return updated;
   }
+
+  async remove(id: string) {
+    const quotation = await this.findOne(id);
+
+    await this.prisma.quotationItem.deleteMany({
+      where: { quotationRequestId: id },
+    });
+
+    return this.prisma.quotationRequest.delete({
+      where: { id },
+    });
+  }
 }

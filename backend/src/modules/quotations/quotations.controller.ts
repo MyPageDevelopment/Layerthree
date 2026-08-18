@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Param,
   UseGuards,
@@ -126,5 +127,11 @@ export class QuotationsController {
     @Body('status') status: any,
   ) {
     return this.quotationsService.updateStatus(id, req.user, status);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Eliminar un flujo de compra por ID' })
+  async remove(@Param('id') id: string) {
+    return this.quotationsService.remove(id);
   }
 }
