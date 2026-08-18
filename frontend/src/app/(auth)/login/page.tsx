@@ -22,7 +22,7 @@ export default function LoginPage() {
   const [confirmNewPassword, setConfirmNewPassword] = useState('')
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false)
-  const [forgotStep, setForgotStep] = useState<1 | 2>(1)
+  const [forgotStep, setForgotStep] = useState<1 | 2 | 3>(1)
   const [forgotMessage, setForgotMessage] = useState('')
   const [forgotError, setForgotError] = useState('')
   const [resetSuccessMessage, setResetSuccessMessage] = useState('')
@@ -130,22 +130,12 @@ export default function LoginPage() {
         token: resetToken,
         password: newPassword,
       })
-      const msg = res.data.message || 'Contraseña actualizada exitosamente. Redirigiendo...'
+      const msg = res.data.message || 'Contraseña actualizada exitosamente.'
       setResetSuccessMessage(msg)
-      setLoadingMessage(`✅ ${msg}`)
-      
-      setTimeout(() => {
-        setLoading(false)
-        setShowForgotModal(false)
-        setForgotStep(1)
-        setForgotEmail('')
-        setResetToken('')
-        setNewPassword('')
-        setConfirmNewPassword('')
-        setResetSuccessMessage('')
-      }, 2500)
+      setForgotStep(3)
     } catch (err: any) {
       setForgotError(err.response?.data?.message || 'Error al restablecer la contraseña.')
+    } finally {
       setLoading(false)
     }
   }
@@ -293,7 +283,7 @@ export default function LoginPage() {
                     Enviar Código de Verificación
                   </button>
                 </form>
-              ) : (
+              ) : forgotStep === 2 ? (
                 <form onSubmit={handleResetPassword} className="space-y-4">
                   <div>
                     <div className="flex justify-between items-center mb-1">
@@ -370,6 +360,29 @@ export default function LoginPage() {
                     Guardar Nueva Contraseña
                   </button>
                 </form>
+              ) : (
+                <div className="p-4 text-center space-y-3">
+                  <span className="text-4xl block">🎉</span>
+                  <h4 className="font-extrabold text-sm text-white">¡Contraseña Restablecida Con Éxito!</h4>
+                  <p className="text-xs text-slate-300">
+                    Tu clave ha sido cambiada correctamente. Ya puedes iniciar sesión en la plataforma con tu nueva contraseña.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowForgotModal(false)
+                      setForgotStep(1)
+                      setForgotEmail('')
+                      setResetToken('')
+                      setNewPassword('')
+                      setConfirmNewPassword('')
+                      setResetSuccessMessage('')
+                    }}
+                    className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs transition shadow"
+                  >
+                    Entendido (Ir a Iniciar Sesión)
+                  </button>
+                </div>
               )}
             </div>
           </div>

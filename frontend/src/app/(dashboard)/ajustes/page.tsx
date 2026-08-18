@@ -15,7 +15,7 @@ export default function AjustesPage() {
   const [updatingName, setUpdatingName] = useState(false)
 
   // Cambio de contraseña con código
-  const [forgotStep, setForgotStep] = useState<1 | 2>(1)
+  const [forgotStep, setForgotStep] = useState<1 | 2 | 3>(1)
   const [sendingEmail, setSendingEmail] = useState(false)
   const [token, setToken] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -102,7 +102,7 @@ export default function AjustesPage() {
       setNewPassword('')
       setConfirmPassword('')
       setToken('')
-      setForgotStep(1)
+      setForgotStep(3)
     } catch (err: any) {
       setPassError(err.response?.data?.message || 'Código inválido o expirado')
     } finally {
@@ -202,7 +202,7 @@ export default function AjustesPage() {
               <span>🔒</span> Cambio Seguro de Contraseña (Verificación por Correo)
             </h2>
 
-            {passSuccess && (
+            {passSuccess && forgotStep !== 3 && (
               <div className="p-3 bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 rounded-xl text-xs border border-emerald-200 dark:border-emerald-800 font-semibold">
                 {passSuccess}
               </div>
@@ -229,7 +229,7 @@ export default function AjustesPage() {
                   <span>{sendingEmail ? 'Enviando Código...' : 'Enviar Código de Verificación al Correo'}</span>
                 </button>
               </div>
-            ) : (
+            ) : forgotStep === 2 ? (
               <form onSubmit={handleChangePassword} className="space-y-4 text-xs sm:text-sm">
                 <div>
                   <label className="block font-semibold mb-1 text-slate-700 dark:text-slate-300">
@@ -283,10 +283,10 @@ export default function AjustesPage() {
                 <div className="flex justify-between items-center pt-2">
                   <button
                     type="button"
-                    onClick={() => setForgotStep(1)}
+                    onClick={() => handleSendVerificationCode()}
                     className="text-xs text-slate-500 hover:underline"
                   >
-                    ← Reenviar código
+                    ← Reenviar código por correo
                   </button>
 
                   <button
@@ -298,6 +298,26 @@ export default function AjustesPage() {
                   </button>
                 </div>
               </form>
+            ) : (
+              <div className="p-5 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 rounded-xl text-center space-y-3">
+                <span className="text-3xl block">🎉</span>
+                <h4 className="font-extrabold text-sm text-emerald-900 dark:text-emerald-300">
+                  ¡Contraseña Actualizada Exitosamente!
+                </h4>
+                <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                  Tu nueva clave ha sido guardada. El proceso ha finalizado correctamente.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForgotStep(1)
+                    setPassSuccess('')
+                  }}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs shadow"
+                >
+                  Entendido
+                </button>
+              </div>
             )}
           </div>
         </div>
