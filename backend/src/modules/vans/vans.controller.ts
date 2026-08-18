@@ -71,7 +71,7 @@ export class VansController {
 
   @Delete(':id/items/:itemId')
   @ApiOperation({ summary: 'Eliminar ítem de la camioneta' })
-  removeItem(@Param('id') id: string, @Param('itemId') itemId: string) {
-    return this.vansService.removeItem(id, itemId);
+  removeItem(@Param('id') id: string, @Param('itemId') itemId: string, @Request() req: any) {
+    return this.vansService.removeItem(id, itemId, req.user);
   }
 }

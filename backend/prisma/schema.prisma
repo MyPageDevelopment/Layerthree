@@ -133,6 +133,7 @@ model User {
   materialRequestsAssigned MaterialRequest[] @relation("RequestsAssigned")
   quotationRequestsMade    QuotationRequest[] @relation("QuotationRequestsMade")
   quotationRequestsAssigned QuotationRequest[] @relation("QuotationRequestsAssigned")
+  quotationRequestsPickup   QuotationRequest[] @relation("QuotationRequestsPickup")
   resourceBookings       ResourceBooking[]
   assignedTasks          TaskAssignment[]
   taskUpdateTokens       TaskUpdateToken[]
@@ -679,32 +680,62 @@ model AppNotification {
 enum QuotationStatus {
   PENDING_QUOTE
   QUOTED
+  ORDER_PLACED
+  IN_PROCESSING
+  READY_FOR_PICKUP
+  COMPLETED
+  CANCELLED
   APPROVED
   REJECTED
   PURCHASED
 }
 
+enum PurchaseDestination {
+  PROYECTO
+  STOCK_BODEGA
+}
+
+enum DeliveryType {
+  RETIRO_SUCURSAL
+  DESPACHO_DOMICILIO
+}
+
 model QuotationRequest {
-  id                 String          @id @default(uuid())
-  code               String          @unique
-  projectId          String?
-  projectName        String?
-  requestedById      String
-  requestedBy        User            @relation("QuotationRequestsMade", fields: [requestedById], references: [id])
-  assignedToId       String?
-  assignedTo         User?           @relation("QuotationRequestsAssigned", fields: [assignedToId], references: [id])
-  status             QuotationStatus @default(PENDING_QUOTE)
-  title              String
-  notes              String?         @db.Text
-  attachmentUrl          String?         @db.LongText
-  attachmentName         String?         @db.VarChar(255)
-  bodegueroNotes         String?         @db.Text
-  responseAttachmentUrl  String?         @db.LongText
-  responseAttachmentName String?         @db.VarChar(255)
-  totalEstimatedCost     Float?          @default(0)
-  items              QuotationItem[]
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
+  id                     String              @id @default(uuid())
+  code                   String              @unique
+  customCode             String?             @db.VarChar(100)
+  destinationType        PurchaseDestination @default(STOCK_BODEGA)
+  deliveryType           DeliveryType        @default(DESPACHO_DOMICILIO)
+  projectId              String?
+  projectName            String?
+  requestedById          String
+  requestedBy            User                @relation("QuotationRequestsMade", fields: [requestedById], references: [id])
+  assignedToId           String?
+  assignedTo             User?               @relation("QuotationRequestsAssigned", fields: [assignedToId], references: [id])
+  pickupWorkerId         String?
+  pickupWorker           User?               @relation("QuotationRequestsPickup", fields: [pickupWorkerId], references: [id])
+  pickupWorkerName       String?             @db.VarChar(255)
+  notificationEmail      String?             @db.VarChar(255)
+  status                 QuotationStatus     @default(PENDING_QUOTE)
+  title                  String
+  notes                  String?             @db.Text
+  attachmentUrl          String?             @db.LongText
+  attachmentName         String?             @db.VarChar(255)
+  ocAttachmentUrl        String?             @db.LongText
+  ocAttachmentName       String?             @db.VarChar(255)
+  invoiceAttachmentUrl   String?             @db.LongText
+  invoiceAttachmentName  String?             @db.VarChar(255)
+  documentsJson          String?             @db.LongText
+  bodegueroNotes         String?             @db.Text
+  responseAttachmentUrl  String?             @db.LongText
+  responseAttachmentName String?             @db.VarChar(255)
+  totalEstimatedCost     Float?              @default(0)
+  supplierRut            String?             @db.VarChar(50)
+  supplierName           String?             @db.VarChar(255)
+  invoiceNumber          String?             @db.VarChar(100)
+  items                  QuotationItem[]
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
 
   @@map("quotation_requests")
 }

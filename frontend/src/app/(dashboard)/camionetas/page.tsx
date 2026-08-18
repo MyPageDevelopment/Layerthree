@@ -65,7 +65,7 @@ export default function CamionetasPage() {
   const [itemCategory, setItemCategory] = useState('EQUIPOS')
   const [itemType, setItemType] = useState('HERRAMIENTA')
   const [itemQuantity, setItemQuantity] = useState<number>(1)
-  const [deductFromWarehouse, setDeductFromWarehouse] = useState(false)
+  const [deductFromWarehouse, setDeductFromWarehouse] = useState(true)
 
   useEffect(() => {
     fetchVans()
@@ -160,6 +160,7 @@ export default function CamionetasPage() {
       setItemSku(prod.sku)
       setItemCategory(prod.category)
       setItemType('MATERIAL')
+      setDeductFromWarehouse(true)
     }
   }
 
@@ -181,10 +182,11 @@ export default function CamionetasPage() {
       setItemName('')
       setItemSku('')
       setItemQuantity(1)
-      setDeductFromWarehouse(false)
-      // Refresh selected van detail and full list
+      setDeductFromWarehouse(true)
+      // Refresh selected van detail, full list and products list
       handleOpenManageItems(selectedVan)
       fetchVans()
+      fetchProducts()
     } catch (err: any) {
       alert(err.response?.data?.message || 'Error al agregar ítem a la camioneta')
     }
@@ -196,6 +198,7 @@ export default function CamionetasPage() {
       await api.patch(`/vans/${selectedVan.id}/items/${itemId}`, { quantity: newQty })
       handleOpenManageItems(selectedVan)
       fetchVans()
+      fetchProducts()
     } catch (err: any) {
       alert(err.response?.data?.message || 'Error al actualizar cantidad')
     }
@@ -207,6 +210,7 @@ export default function CamionetasPage() {
       await api.delete(`/vans/${selectedVan.id}/items/${itemId}`)
       handleOpenManageItems(selectedVan)
       fetchVans()
+      fetchProducts()
     } catch (err: any) {
       alert(err.response?.data?.message || 'Error al quitar ítem')
     }

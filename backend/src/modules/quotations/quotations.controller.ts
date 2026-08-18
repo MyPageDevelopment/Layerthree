@@ -82,12 +82,48 @@ export class QuotationsController {
     return this.quotationsService.updateQuoteItems(id, req.user, items);
   }
 
+  @Post(':id/documents')
+  @ApiOperation({ summary: 'Adjuntar documento multiformato (Cotización, OC, Factura, etc.)' })
+  async uploadDocument(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() dto: { documentType: 'COTIZACION' | 'ORDEN_COMPRA' | 'FACTURA' | 'OTRO'; fileUrl: string; fileName: string },
+  ) {
+    return this.quotationsService.uploadDocument(id, req.user, dto);
+  }
+
+  @Patch(':id/workflow')
+  @ApiOperation({ summary: 'Actualizar estado del flujo de compra y seguimiento' })
+  async updateWorkflowStatus(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() dto: any,
+  ) {
+    return this.quotationsService.updateWorkflowStatus(id, req.user, dto);
+  }
+
+  @Post('parse-invoice-text')
+  @ApiOperation({ summary: 'Analizar texto OCR de factura e interpretar ítems y RUT' })
+  async parseInvoiceText(@Body('rawText') rawText: string) {
+    return this.quotationsService.parseInvoiceText(rawText || '');
+  }
+
+  @Post(':id/confirm-invoice')
+  @ApiOperation({ summary: 'Confirmar recepción de Factura e ingresar stock a Bodega/Proyecto' })
+  async confirmInvoiceReceipt(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() dto: any,
+  ) {
+    return this.quotationsService.confirmInvoiceReceipt(id, req.user, dto);
+  }
+
   @Patch(':id/status')
   @ApiOperation({ summary: 'Cambiar estado de la cotización (Aprobar, Rechazar, Comprar)' })
   async updateStatus(
     @Request() req,
     @Param('id') id: string,
-    @Body('status') status: 'APPROVED' | 'REJECTED' | 'PURCHASED',
+    @Body('status') status: any,
   ) {
     return this.quotationsService.updateStatus(id, req.user, status);
   }

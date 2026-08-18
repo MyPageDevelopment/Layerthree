@@ -236,6 +236,23 @@ export class RequestsService implements OnModuleInit {
       vanObj = await this.prisma.van.findUnique({ where: { id: dto.vanId } });
     }
 
+    // Pre-validate stock sufficiency for all checked items
+    for (const itemDto of dto.items) {
+      if (!itemDto.isChecked) continue;
+      const dbItem = request.items.find((i) => i.id === itemDto.itemId);
+      if (!dbItem || !dbItem.productId) continue;
+
+      const deliveredQty = itemDto.deliveredQuantity || dbItem.requestedQuantity;
+      if (deliveredQty > 0) {
+        const prod = await this.prisma.product.findUnique({ where: { id: dbItem.productId } });
+        if (prod && prod.stock < deliveredQty) {
+          throw new BadRequestException(
+            `Stock insuficiente en Bodega para "${prod.name}". Disponible: ${prod.stock}, Solicitado: ${deliveredQty}`,
+          );
+        }
+      }
+    }
+
     // Process items, update stock & assign to Van if vanId selected
     for (const itemDto of dto.items) {
       const dbItem = request.items.find((i) => i.id === itemDto.itemId);
@@ -251,7 +268,7 @@ export class RequestsService implements OnModuleInit {
         },
       });
 
-      if (itemDto.isChecked && deliveredQty > 0) {
+      if (itemDto.isChecked && deliveredQty > 0 && dbItem.productId) {
         // Create movement entry (EXIT / SALIDA)
         await this.prisma.movement.create({
           data: {
