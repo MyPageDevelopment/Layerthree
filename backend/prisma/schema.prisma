@@ -705,7 +705,7 @@ model QuotationRequest {
   code                   String              @unique
   customCode             String?             @db.VarChar(100)
   destinationType        PurchaseDestination @default(STOCK_BODEGA)
-  deliveryType           DeliveryType        @default(DESPACHO_DOMICILIO)
+  deliveryType           DeliveryType?
   projectId              String?
   projectName            String?
   requestedById          String
