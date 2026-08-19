@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, OnModuleInit, Logge
 import { PrismaService } from '../../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { ExcelParserService } from './excel-parser.service';
+import { determineItemType } from '../vans/vans.service';
 
 export interface CreateRequestItemDto {
   productId?: string | null;
@@ -303,6 +304,7 @@ export class RequestsService implements OnModuleInit {
               where: { id: existingVanItem.id },
               data: {
                 quantity: { increment: deliveredQty },
+                type: determineItemType(dbItem.product),
               },
             });
           } else {
@@ -313,7 +315,7 @@ export class RequestsService implements OnModuleInit {
                 name: dbItem.product.name,
                 sku: dbItem.product.sku,
                 category: dbItem.product.category,
-                type: 'MATERIAL',
+                type: determineItemType(dbItem.product),
                 quantity: deliveredQty,
                 minQuantity: 1,
                 assignedTo: vanObj.driver || dto.recipientName,

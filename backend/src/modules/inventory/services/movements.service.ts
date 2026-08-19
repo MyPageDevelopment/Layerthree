@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateMovementDto } from '../dto/create-movement.dto';
 import { CreateBulkMovementDto } from '../dto/create-bulk-movement.dto';
+import { determineItemType } from '../../vans/vans.service';
 
 @Injectable()
 export class MovementsService {
@@ -46,7 +47,10 @@ export class MovementsService {
           if (existingVanItem) {
             await this.prisma.vanItem.update({
               where: { id: existingVanItem.id },
-              data: { quantity: { increment: createMovementDto.quantity } },
+              data: {
+                quantity: { increment: createMovementDto.quantity },
+                type: determineItemType(product),
+              },
             });
           } else {
             await this.prisma.vanItem.create({
@@ -55,6 +59,7 @@ export class MovementsService {
                 productId: product.id,
                 name: product.name,
                 category: product.category,
+                type: determineItemType(product),
                 quantity: createMovementDto.quantity,
                 minQuantity: product.minStock || 1,
               },
@@ -218,7 +223,10 @@ export class MovementsService {
             if (existingVanItem) {
               await this.prisma.vanItem.update({
                 where: { id: existingVanItem.id },
-                data: { quantity: { increment: item.quantity } },
+                data: {
+                  quantity: { increment: item.quantity },
+                  type: determineItemType(product),
+                },
               });
             } else {
               await this.prisma.vanItem.create({
@@ -227,6 +235,7 @@ export class MovementsService {
                   productId: product.id,
                   name: product.name,
                   category: product.category,
+                  type: determineItemType(product),
                   quantity: item.quantity,
                   minQuantity: product.minStock || 1,
                 },

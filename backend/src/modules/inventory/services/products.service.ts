@@ -123,9 +123,13 @@ export class ProductsService {
           : 'UN');
 
     const newStock = updateProductDto.stock !== undefined ? updateProductDto.stock : product.stock;
-    const newUnitCost = updateProductDto.unitCost !== undefined ? updateProductDto.unitCost : (updateProductDto.unitPrice !== undefined ? updateProductDto.unitPrice : product.unitCost);
+    const newUnitCost = updateProductDto.unitCost !== undefined
+      ? updateProductDto.unitCost
+      : (updateProductDto.unitPrice !== undefined ? updateProductDto.unitPrice : product.unitCost);
+    const newUnitPrice = updateProductDto.unitPrice !== undefined
+      ? updateProductDto.unitPrice
+      : (updateProductDto.unitCost !== undefined ? updateProductDto.unitCost : product.unitPrice);
     const newTotalCost = newStock * newUnitCost;
-    const newUnitPrice = updateProductDto.unitPrice !== undefined ? updateProductDto.unitPrice : (newUnitCost > 0 ? newUnitCost : product.unitPrice);
 
     const changes: any = {};
     Object.keys(updateProductDto).forEach((key) => {

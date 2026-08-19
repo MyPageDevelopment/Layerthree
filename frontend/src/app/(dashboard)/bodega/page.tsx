@@ -205,11 +205,15 @@ export default function BodegaPage() {
     e.preventDefault()
     startLoading(editingProduct ? 'Actualizando producto...' : 'Creando nuevo producto...')
     try {
+      const payload = {
+        ...formData,
+        unitPrice: formData.unitCost,
+      }
       if (editingProduct) {
-        await api.patch(`/products/${editingProduct.id}`, formData)
+        await api.patch(`/products/${editingProduct.id}`, payload)
         showToast('success', 'Producto modificado exitosamente', 'Inventario')
       } else {
-        await api.post('/products', formData)
+        await api.post('/products', payload)
         showToast('success', 'Nuevo producto agregado exitosamente', 'Inventario')
       }
       setShowProductModal(false)
@@ -729,7 +733,7 @@ export default function BodegaPage() {
           <div className="block md:hidden space-y-3">
             {filteredProducts.map((product) => {
               const unitStr = product.unit || 'UN'
-              const baseCost = (product.unitCost && product.unitCost > 0) ? product.unitCost : product.unitPrice
+              const baseCost = product.unitCost ?? product.unitPrice ?? 0
               const totalCostVal = product.stock * baseCost
 
               return (
@@ -778,10 +782,10 @@ export default function BodegaPage() {
                             subcategory: product.subcategory || '',
                             stock: product.stock,
                             minStock: product.minStock,
-                            unitPrice: product.unitPrice || 0,
+                            unitPrice: product.unitPrice ?? 0,
                             unit: product.unit || 'UN',
-                            unitCost: product.unitCost || product.unitPrice || 0,
-                            listPrice: product.listPrice || 0,
+                            unitCost: product.unitCost ?? product.unitPrice ?? 0,
+                            listPrice: product.listPrice ?? 0,
                             supplierCode: product.supplierCode || '',
                           })
                           setShowProductModal(true)
@@ -825,7 +829,7 @@ export default function BodegaPage() {
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                   {filteredProducts.map((product) => {
                     const unitStr = product.unit || 'UN'
-                    const baseCost = (product.unitCost && product.unitCost > 0) ? product.unitCost : product.unitPrice
+                    const baseCost = product.unitCost ?? product.unitPrice ?? 0
                     const totalCostVal = product.stock * baseCost
 
                     return (
@@ -873,10 +877,10 @@ export default function BodegaPage() {
                                   subcategory: product.subcategory || '',
                                   stock: product.stock,
                                   minStock: product.minStock,
-                                  unitPrice: product.unitPrice || 0,
+                                  unitPrice: product.unitPrice ?? 0,
                                   unit: product.unit || 'UN',
-                                  unitCost: product.unitCost || product.unitPrice || 0,
-                                  listPrice: product.listPrice || 0,
+                                  unitCost: product.unitCost ?? product.unitPrice ?? 0,
+                                  listPrice: product.listPrice ?? 0,
                                   supplierCode: product.supplierCode || '',
                                 })
                                 setShowProductModal(true)

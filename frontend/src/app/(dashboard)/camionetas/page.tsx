@@ -35,7 +35,51 @@ interface Product {
   sku: string
   name: string
   category: string
+  subcategory?: string
   stock: number
+}
+
+function determineItemType(prod?: Product | null): 'HERRAMIENTA' | 'MATERIAL' {
+  if (!prod) return 'MATERIAL'
+  const subcat = (prod.subcategory || '').toLowerCase().trim()
+  const cat = (prod.category || '').toLowerCase().trim()
+  const name = (prod.name || '').toLowerCase().trim()
+
+  if (
+    subcat.includes('herramienta') ||
+    subcat.includes('fusionadora') ||
+    subcat.includes('equipo') ||
+    subcat.includes('maquinaria') ||
+    subcat.includes('instrumento') ||
+    subcat.includes('tester') ||
+    subcat.includes('certificador') ||
+    subcat.includes('medidor')
+  ) {
+    return 'HERRAMIENTA'
+  }
+
+  if (
+    name.includes('fusionadora') ||
+    name.includes('empalmadora') ||
+    name.includes('taladro') ||
+    name.includes('multimetro') ||
+    name.includes('multímetro') ||
+    name.includes('otdr') ||
+    name.includes('certificador') ||
+    name.includes('cleaver') ||
+    name.includes('peladora') ||
+    name.includes('prensaterminal') ||
+    name.includes('cortadora') ||
+    name.includes('escalera')
+  ) {
+    return 'HERRAMIENTA'
+  }
+
+  if (cat === 'equipos' && !subcat.includes('insumo') && !subcat.includes('accesorio')) {
+    return 'HERRAMIENTA'
+  }
+
+  return 'MATERIAL'
 }
 
 export default function CamionetasPage() {
@@ -159,7 +203,7 @@ export default function CamionetasPage() {
       setItemName(prod.name)
       setItemSku(prod.sku)
       setItemCategory(prod.category)
-      setItemType('MATERIAL')
+      setItemType(determineItemType(prod))
       setDeductFromWarehouse(true)
     }
   }

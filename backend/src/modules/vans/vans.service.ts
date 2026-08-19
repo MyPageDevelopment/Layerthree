@@ -3,6 +3,60 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreateVanDto } from './dto/create-van.dto';
 import { AddVanItemDto } from './dto/add-van-item.dto';
 
+export function determineItemType(
+  product?: { category?: string | null; subcategory?: string | null; name?: string | null } | null,
+  fallbackType: string = 'MATERIAL',
+): 'HERRAMIENTA' | 'MATERIAL' {
+  if (!product) {
+    const fallbackLower = (fallbackType || '').toLowerCase();
+    return fallbackLower.includes('herramienta') ? 'HERRAMIENTA' : 'MATERIAL';
+  }
+
+  const subcat = (product.subcategory || '').toLowerCase().trim();
+  const cat = (product.category || '').toLowerCase().trim();
+  const name = (product.name || '').toLowerCase().trim();
+
+  // 1. Subcategory checks (subcategoría indica si el producto es herramienta o equipo)
+  if (
+    subcat.includes('herramienta') ||
+    subcat.includes('fusionadora') ||
+    subcat.includes('equipo') ||
+    subcat.includes('maquinaria') ||
+    subcat.includes('instrumento') ||
+    subcat.includes('tester') ||
+    subcat.includes('certificador') ||
+    subcat.includes('medidor')
+  ) {
+    return 'HERRAMIENTA';
+  }
+
+  // 2. Name checks
+  if (
+    name.includes('fusionadora') ||
+    name.includes('empalmadora') ||
+    name.includes('taladro') ||
+    name.includes('multimetro') ||
+    name.includes('multímetro') ||
+    name.includes('otdr') ||
+    name.includes('certificador') ||
+    name.includes('cleaver') ||
+    name.includes('peladora') ||
+    name.includes('prensaterminal') ||
+    name.includes('cortadora') ||
+    name.includes('escalera')
+  ) {
+    return 'HERRAMIENTA';
+  }
+
+  // 3. Category EQUIPOS (salvo que sea expresamente insumo/accesorio)
+  if (cat === 'equipos' && !subcat.includes('insumo') && !subcat.includes('accesorio')) {
+    return 'HERRAMIENTA';
+  }
+
+  const fallbackLower = (fallbackType || '').toLowerCase();
+  return fallbackLower.includes('herramienta') ? 'HERRAMIENTA' : 'MATERIAL';
+}
+
 @Injectable()
 export class VansService {
   constructor(private prisma: PrismaService) {}
@@ -18,12 +72,23 @@ export class VansService {
       include: {
         items: {
           where: { quantity: { gt: 0 } },
+          include: { product: true },
         },
       },
     });
 
     return vans.map((v) => {
-      const activeItems = v.items.filter((i) => i.quantity > 0);
+      const activeItems = v.items
+        .filter((i) => i.quantity > 0)
+        .map((i) => {
+          const computedType = determineItemType(i.product, i.type);
+          if (i.type !== computedType) {
+            this.prisma.vanItem.update({ where: { id: i.id }, data: { type: computedType } }).catch(() => {});
+            return { ...i, type: computedType };
+          }
+          return i;
+        });
+
       const totalItems = activeItems.reduce((sum, item) => sum + item.quantity, 0);
       const toolsCount = activeItems.filter((i) => i.type === 'HERRAMIENTA').length;
       const materialsCount = activeItems.filter((i) => i.type === 'MATERIAL').length;
@@ -43,6 +108,7 @@ export class VansService {
       include: {
         items: {
           where: { quantity: { gt: 0 } },
+          include: { product: true },
           orderBy: { name: 'asc' },
         },
       },
@@ -52,7 +118,19 @@ export class VansService {
       throw new NotFoundException('Camioneta no encontrada');
     }
 
-    return van;
+    const items = van.items.map((i) => {
+      const computedType = determineItemType(i.product, i.type);
+      if (i.type !== computedType) {
+        this.prisma.vanItem.update({ where: { id: i.id }, data: { type: computedType } }).catch(() => {});
+        return { ...i, type: computedType };
+      }
+      return i;
+    });
+
+    return {
+      ...van,
+      items,
+    };
   }
 
   async create(dto: CreateVanDto) {
@@ -153,11 +231,18 @@ export class VansService {
       },
     });
 
+    let itemProd: any = null;
+    if (dto.productId) {
+      itemProd = await this.prisma.product.findUnique({ where: { id: dto.productId } });
+    }
+    const computedType = determineItemType(itemProd, dto.type || 'MATERIAL');
+
     if (existingVanItem) {
       return this.prisma.vanItem.update({
         where: { id: existingVanItem.id },
         data: {
           quantity: existingVanItem.quantity + dto.quantity,
+          type: computedType,
           assignedTo: dto.assignedTo || existingVanItem.assignedTo || van.driver || null,
         },
       });
@@ -170,7 +255,7 @@ export class VansService {
         name: dto.name,
         sku: dto.sku || null,
         category: dto.category || 'EQUIPOS',
-        type: dto.type || 'MATERIAL',
+        type: computedType,
         quantity: dto.quantity,
         minQuantity: dto.minQuantity || 1,
         assignedTo: dto.assignedTo || van.driver || null,
