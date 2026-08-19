@@ -24,3 +24,13 @@ body {
   min-height: 100vh;
   transition: background-color 0.2s ease, color 0.2s ease;
 }
+
+/* Hide scrollbar utility for clean horizontal/vertical scrollbars */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+

@@ -1239,7 +1239,7 @@ export default function BodegaPage() {
                     <option value="">-- Sin Vehículo Asignado --</option>
                     {vans.map((v) => (
                       <option key={v.id} value={v.id}>
-                        🚚 {v.plate} - {v.name} ({v.driverName || 'Sin Conductor'})
+                        🚚 {v.plate} - {v.name} ({v.driver || v.driverName || 'Sin Conductor'})
                       </option>
                     ))}
                   </select>

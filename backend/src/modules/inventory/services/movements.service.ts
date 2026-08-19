@@ -32,7 +32,8 @@ export class MovementsService {
 
       if (van) {
         const actionLabel = createMovementDto.type === 'EXIT' ? 'Asignado a' : 'Devuelto desde';
-        updatedNotes = `${updatedNotes} [${actionLabel} Vehículo: ${van.plate} - ${van.name}]`.trim();
+        const driverInfo = van.driver ? ` - Conductor: ${van.driver}` : '';
+        updatedNotes = `${updatedNotes} [${actionLabel} Vehículo: ${van.plate} - ${van.name}${driverInfo}]`.trim();
 
         const existingVanItem = await this.prisma.vanItem.findFirst({
           where: {
@@ -61,11 +62,17 @@ export class MovementsService {
           }
         } else if (createMovementDto.type === 'ENTRY') {
           if (existingVanItem) {
-            const newQty = Math.max(0, existingVanItem.quantity - createMovementDto.quantity);
-            await this.prisma.vanItem.update({
-              where: { id: existingVanItem.id },
-              data: { quantity: newQty },
-            });
+            const newQty = existingVanItem.quantity - createMovementDto.quantity;
+            if (newQty <= 0) {
+              await this.prisma.vanItem.delete({
+                where: { id: existingVanItem.id },
+              });
+            } else {
+              await this.prisma.vanItem.update({
+                where: { id: existingVanItem.id },
+                data: { quantity: newQty },
+              });
+            }
           }
         }
       }
@@ -194,7 +201,8 @@ export class MovementsService {
       });
       if (van) {
         const actionLabel = createBulkMovementDto.type === 'EXIT' ? 'Asignado a' : 'Devuelto desde';
-        updatedNotes = `${updatedNotes} [${actionLabel} Vehículo: ${van.plate} - ${van.name}]`.trim();
+        const driverInfo = van.driver ? ` - Conductor: ${van.driver}` : '';
+        updatedNotes = `${updatedNotes} [${actionLabel} Vehículo: ${van.plate} - ${van.name}${driverInfo}]`.trim();
 
         for (const item of createBulkMovementDto.items) {
           const product = products.find(p => p.id === item.productId);
@@ -226,11 +234,17 @@ export class MovementsService {
             }
           } else if (createBulkMovementDto.type === 'ENTRY') {
             if (existingVanItem) {
-              const newQty = Math.max(0, existingVanItem.quantity - item.quantity);
-              await this.prisma.vanItem.update({
-                where: { id: existingVanItem.id },
-                data: { quantity: newQty },
-              });
+              const newQty = existingVanItem.quantity - item.quantity;
+              if (newQty <= 0) {
+                await this.prisma.vanItem.delete({
+                  where: { id: existingVanItem.id },
+                });
+              } else {
+                await this.prisma.vanItem.update({
+                  where: { id: existingVanItem.id },
+                  data: { quantity: newQty },
+                });
+              }
             }
           }
         }

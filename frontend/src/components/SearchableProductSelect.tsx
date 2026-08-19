@@ -77,18 +77,49 @@ export default function SearchableProductSelect({
     }
   }, [selectedProductId, selectedProduct, isOpen])
 
-  // Recalculate fixed portal coordinates
+  // Recalculate fixed portal coordinates with viewport clamping
   const updatePortalCoords = useCallback(() => {
     if (!wrapperRef.current) return
     const rect = wrapperRef.current.getBoundingClientRect()
-    const spaceBelow = window.innerHeight - rect.bottom
-    const dropdownHeight = 320
-    const flipUp = spaceBelow < dropdownHeight && rect.top > dropdownHeight
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+
+    const dropdownEstHeight = 320
+    const minWidth = Math.min(viewportWidth - 24, 340)
+    const preferredWidth = Math.max(rect.width, minWidth)
+    const width = Math.min(preferredWidth, viewportWidth - 24)
+
+    const spaceBelow = viewportHeight - rect.bottom
+    const spaceAbove = rect.top
+
+    // Flip up only if space below is too small AND space above offers enough room
+    const flipUp = spaceBelow < dropdownEstHeight && spaceAbove > dropdownEstHeight
+
+    // Horizontal clamping (keep 12px margin from screen edges)
+    let left = rect.left
+    if (left + width > viewportWidth - 12) {
+      left = viewportWidth - width - 12
+    }
+    if (left < 12) {
+      left = 12
+    }
+
+    // Vertical positioning
+    let top: number
+    if (flipUp) {
+      top = Math.max(12, rect.top - dropdownEstHeight - 6)
+    } else {
+      top = rect.bottom + 6
+      // Make sure it doesn't run off bottom of viewport
+      if (top + dropdownEstHeight > viewportHeight - 12) {
+        top = Math.max(12, viewportHeight - dropdownEstHeight - 12)
+      }
+    }
 
     setPortalCoords({
-      top: flipUp ? Math.max(10, rect.top - dropdownHeight - 4) : rect.bottom + 4,
-      left: rect.left,
-      width: Math.max(rect.width, 360),
+      top,
+      left,
+      width,
       flipUp,
     })
   }, [])
@@ -205,24 +236,25 @@ export default function SearchableProductSelect({
               top: `${portalCoords.top}px`,
               left: `${portalCoords.left}px`,
               width: `${portalCoords.width}px`,
+              maxHeight: '340px',
               zIndex: 999999,
             }
           : undefined
       }
-      className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-fade-in ${
+      className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-md transition-all ${
         !portalCoords ? 'absolute z-[9999] left-0 right-0 w-full mt-1.5' : ''
       }`}
     >
       {/* Header with Category & Stock Filter Chips */}
-      <div className="p-2 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-1.5 overflow-x-auto scrollbar-none">
-        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+      <div className="p-2 bg-slate-50/90 dark:bg-slate-800/90 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-1.5 overflow-x-auto scrollbar-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <span className="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 shrink-0 mr-1">
             Filtros:
           </span>
           <button
             type="button"
             onClick={() => setSelectedCategory('ALL')}
-            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition whitespace-nowrap ${
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition whitespace-nowrap shrink-0 ${
               selectedCategory === 'ALL'
                 ? 'bg-blue-600 text-white shadow-sm'
                 : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
@@ -238,7 +270,7 @@ export default function SearchableProductSelect({
                 key={cat}
                 type="button"
                 onClick={() => setSelectedCategory(cat)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition whitespace-nowrap ${
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition whitespace-nowrap shrink-0 ${
                   isSelected
                     ? 'bg-blue-600 text-white shadow-sm'
                     : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
@@ -259,7 +291,7 @@ export default function SearchableProductSelect({
               : 'bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 border border-emerald-300 dark:border-emerald-800'
           }`}
         >
-          {onlyAvailable ? '✅ Solo Disponibles (>0)' : '📦 Incluir Agotados'}
+          {onlyAvailable ? '✅ Solo Disponibles' : '📦 Incluir Agotados'}
         </button>
       </div>
 

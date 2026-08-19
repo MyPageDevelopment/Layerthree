@@ -193,10 +193,15 @@ export default function CamionetasPage() {
   }
 
   const handleUpdateItemQty = async (itemId: string, newQty: number) => {
-    if (!selectedVan || newQty < 0) return
+    if (!selectedVan) return
     try {
       await api.patch(`/vans/${selectedVan.id}/items/${itemId}`, { quantity: newQty })
-      handleOpenManageItems(selectedVan)
+      if (selectedVan) {
+        const updatedItems = (selectedVan.items || [])
+          .map((i) => (i.id === itemId ? { ...i, quantity: newQty } : i))
+          .filter((i) => i.quantity > 0)
+        setSelectedVan({ ...selectedVan, items: updatedItems })
+      }
       fetchVans()
       fetchProducts()
     } catch (err: any) {
@@ -208,7 +213,10 @@ export default function CamionetasPage() {
     if (!selectedVan || !confirm('¿Deseas quitar este ítem de la camioneta?')) return
     try {
       await api.delete(`/vans/${selectedVan.id}/items/${itemId}`)
-      handleOpenManageItems(selectedVan)
+      if (selectedVan) {
+        const updatedItems = (selectedVan.items || []).filter((i) => i.id !== itemId)
+        setSelectedVan({ ...selectedVan, items: updatedItems })
+      }
       fetchVans()
       fetchProducts()
     } catch (err: any) {
@@ -218,12 +226,13 @@ export default function CamionetasPage() {
 
   const filteredVans = vans.filter((v) => {
     const query = searchTerm.toLowerCase().trim()
+    const activeItems = (v.items || []).filter((i) => i.quantity > 0)
     const matchesSearch =
       !query ||
       v.plate.toLowerCase().includes(query) ||
       v.name.toLowerCase().includes(query) ||
       (v.driver && v.driver.toLowerCase().includes(query)) ||
-      (v.items && v.items.some((i) => i.name.toLowerCase().includes(query) || (i.sku && i.sku.toLowerCase().includes(query))))
+      activeItems.some((i) => i.name.toLowerCase().includes(query) || (i.sku && i.sku.toLowerCase().includes(query)))
     const matchesStatus = filterStatus === 'TODOS' || v.status === filterStatus
     return matchesSearch && matchesStatus
   })
@@ -568,7 +577,8 @@ export default function CamionetasPage() {
 
             {/* Items List */}
             {(() => {
-              const displayItems = (selectedVan.items || []).filter((item) => {
+              const activeVanItems = (selectedVan.items || []).filter((item) => item.quantity > 0)
+              const displayItems = activeVanItems.filter((item) => {
                 const query = itemSearchTerm.toLowerCase().trim()
                 const matchesText =
                   !query ||
@@ -579,7 +589,7 @@ export default function CamionetasPage() {
                 return matchesText && matchesType
               })
 
-              if (!selectedVan.items || selectedVan.items.length === 0) {
+              if (activeVanItems.length === 0) {
                 return (
                   <div className="p-8 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-slate-500 text-xs">
                     No hay ítems asignados a esta camioneta actualmente.

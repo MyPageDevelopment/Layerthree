@@ -8,19 +8,28 @@ export class VansService {
   constructor(private prisma: PrismaService) {}
 
   async findAll() {
+    // Delete any orphaned zero-quantity items from database
+    await this.prisma.vanItem.deleteMany({
+      where: { quantity: { lte: 0 } },
+    }).catch(() => {});
+
     const vans = await this.prisma.van.findMany({
       orderBy: { plate: 'asc' },
       include: {
-        items: true,
+        items: {
+          where: { quantity: { gt: 0 } },
+        },
       },
     });
 
     return vans.map((v) => {
-      const totalItems = v.items.reduce((sum, item) => sum + item.quantity, 0);
-      const toolsCount = v.items.filter((i) => i.type === 'HERRAMIENTA').length;
-      const materialsCount = v.items.filter((i) => i.type === 'MATERIAL').length;
+      const activeItems = v.items.filter((i) => i.quantity > 0);
+      const totalItems = activeItems.reduce((sum, item) => sum + item.quantity, 0);
+      const toolsCount = activeItems.filter((i) => i.type === 'HERRAMIENTA').length;
+      const materialsCount = activeItems.filter((i) => i.type === 'MATERIAL').length;
       return {
         ...v,
+        items: activeItems,
         totalItems,
         toolsCount,
         materialsCount,
@@ -33,6 +42,7 @@ export class VansService {
       where: { id },
       include: {
         items: {
+          where: { quantity: { gt: 0 } },
           orderBy: { name: 'asc' },
         },
       },
@@ -234,6 +244,12 @@ export class VansService {
           }
         }
       }
+    }
+
+    if (newQuantity <= 0) {
+      return this.prisma.vanItem.delete({
+        where: { id: itemId },
+      });
     }
 
     return this.prisma.vanItem.update({
