@@ -116,7 +116,7 @@ export default function BodegaPage() {
   // Stats Dashboard
   const lowStockList = products.filter((p) => p.stock < p.minStock)
   const totalValue = products.reduce((sum, p) => {
-    const cost = (p.unitCost && p.unitCost > 0) ? p.unitCost : (p.unitPrice || 0)
+    const cost = p.unitCost ?? p.unitPrice ?? 0
     return sum + (p.stock || 0) * cost
   }, 0)
 
@@ -438,7 +438,7 @@ export default function BodegaPage() {
       const cleanSubcat = (p.subcategory || '').replace(/"/g, '""')
       const qty = p.stock || 0
       const unit = isUtp ? 'MTS' : (p.unit || 'UN')
-      const unitCost = p.unitCost || p.unitPrice || 0
+      const unitCost = p.unitCost ?? p.unitPrice ?? 0
       const formulaTotal = `=E${lineNum}*G${lineNum}`
       const listPrice = p.listPrice || 0
       const estado = qty > 0 ? 'Disponible' : 'Sin Stock'

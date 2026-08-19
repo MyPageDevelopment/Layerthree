@@ -137,7 +137,8 @@ export class ReportsService {
     ];
 
     products.forEach(product => {
-      const totalValue = product.stock * product.unitPrice;
+      const unitCost = product.unitCost ?? product.unitPrice ?? 0;
+      const totalValue = product.stock * unitCost;
       const status = product.stock < product.minStock ? 'STOCK BAJO' : 'ÓPTIMO';
 
       worksheet.addRow({
@@ -148,7 +149,7 @@ export class ReportsService {
         description: product.description || '',
         stock: product.stock,
         minStock: product.minStock,
-        unitPrice: product.unitPrice,
+        unitPrice: unitCost,
         totalValue: totalValue,
         status: status,
       });
@@ -196,7 +197,7 @@ export class ReportsService {
     const summarySheet = workbook.addWorksheet('Resumen Ejecutivo');
     const totalProducts = products.length;
     const lowStockProducts = products.filter(p => p.stock < p.minStock).length;
-    const totalInventoryValue = products.reduce((sum, p) => sum + (p.stock * p.unitPrice), 0);
+    const totalInventoryValue = products.reduce((sum, p) => sum + (p.stock * (p.unitCost ?? p.unitPrice ?? 0)), 0);
 
     summarySheet.columns = [{ width: 32 }, { width: 25 }];
 
