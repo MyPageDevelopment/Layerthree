@@ -329,6 +329,37 @@ export class QuotationsService implements OnModuleInit {
   }
 
   /**
+   * Elimina un documento específico adjunto al flujo de compra por su docId
+   */
+  async deleteDocument(id: string, docId: string) {
+    const quotation = await this.findOne(id);
+
+    let docs: any[] = [];
+    if (quotation.documentsJson) {
+      try {
+        docs = JSON.parse(quotation.documentsJson);
+      } catch (e) {}
+    }
+
+    const filteredDocs = docs.filter((d: any) => d.id !== docId);
+
+    const updateData: any = {
+      documentsJson: filteredDocs.length > 0 ? JSON.stringify(filteredDocs) : null,
+    };
+
+    return this.prisma.quotationRequest.update({
+      where: { id },
+      data: updateData,
+      include: {
+        items: true,
+        requestedBy: true,
+        assignedTo: true,
+        pickupWorker: true,
+      },
+    });
+  }
+
+  /**
    * Actualiza el estado y seguimiento del pedido (En tramitación, Listo para despacho/retiro, Cancelado)
    */
   async updateWorkflowStatus(id: string, user: any, dto: UpdateWorkflowStatusDto) {
@@ -441,6 +472,66 @@ export class QuotationsService implements OnModuleInit {
                 type: 'ENTRY',
                 quantity: item.quantity,
                 notes: `📥 Recepción Factura N° ${dto.invoiceNumber || 'S/N'} (${dto.supplierName || 'Proveedor'}) - Flujo: ${quotation.code} por ${userName}`,
+                userId: uId,
+              },
+            });
+          }
+        }
+      } else if (item.productName && item.productName.trim().length > 0) {
+        // Auto-register new product/material/tool into inventory if not existing
+        const cleanName = item.productName.trim();
+        const existingProd = await this.prisma.product.findFirst({
+          where: { name: { equals: cleanName }, isDeleted: false },
+        });
+
+        if (existingProd) {
+          await this.prisma.product.update({
+            where: { id: existingProd.id },
+            data: {
+              stock: { increment: item.quantity },
+              unitCost: item.unitPrice && item.unitPrice > 0 ? item.unitPrice : existingProd.unitCost,
+            },
+          });
+
+          if (uId) {
+            await this.prisma.movement.create({
+              data: {
+                productId: existingProd.id,
+                projectId: quotation.projectId || null,
+                type: 'ENTRY',
+                quantity: item.quantity,
+                notes: `📥 Recepción Factura N° ${dto.invoiceNumber || 'S/N'} (${dto.supplierName || 'Proveedor'}) - Flujo: ${quotation.code} por ${userName}`,
+                userId: uId,
+              },
+            });
+          }
+        } else {
+          const skuCount = await this.prisma.product.count();
+          const autoSku = `PROD-${Date.now().toString().slice(-4)}-${skuCount + 1}`;
+          const unitCost = item.unitPrice || 0;
+          const totalCost = item.quantity * unitCost;
+
+          const newProd = await this.prisma.product.create({
+            data: {
+              sku: autoSku,
+              name: cleanName,
+              category: 'EQUIPOS',
+              unit: item.unitMeasure || 'UN',
+              stock: item.quantity,
+              unitCost: unitCost,
+              unitPrice: unitCost,
+              totalCost: totalCost,
+            },
+          });
+
+          if (uId) {
+            await this.prisma.movement.create({
+              data: {
+                productId: newProd.id,
+                projectId: quotation.projectId || null,
+                type: 'ENTRY',
+                quantity: item.quantity,
+                notes: `📥 Nuevo Producto/Material/Herramienta Ingresado desde Cotización - Factura N° ${dto.invoiceNumber || 'S/N'} por ${userName}`,
                 userId: uId,
               },
             });

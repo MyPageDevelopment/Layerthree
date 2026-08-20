@@ -93,6 +93,15 @@ export class QuotationsController {
     return this.quotationsService.uploadDocument(id, req.user, dto);
   }
 
+  @Delete(':id/documents/:docId')
+  @ApiOperation({ summary: 'Eliminar documento específico del directorio de la cotización' })
+  async deleteDocument(
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+  ) {
+    return this.quotationsService.deleteDocument(id, docId);
+  }
+
   @Patch(':id/workflow')
   @ApiOperation({ summary: 'Actualizar estado del flujo de compra y seguimiento' })
   async updateWorkflowStatus(

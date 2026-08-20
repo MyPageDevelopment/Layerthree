@@ -59,6 +59,19 @@ export class ProductsService {
       });
     }
 
+    const userId = user?.id || user?.userId;
+    if (userId) {
+      await this.prisma.movement.create({
+        data: {
+          productId: product.id,
+          type: 'ENTRY',
+          quantity: product.stock,
+          notes: `Ingreso de producto en inventario desde subsección Productos (Stock: ${product.stock}) por ${user?.name || user?.email || 'Usuario'}`,
+          userId: userId,
+        },
+      });
+    }
+
     return product;
   }
 

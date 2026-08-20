@@ -248,6 +248,22 @@ export default function CotizacionesPage() {
     }
   }
 
+  const handleDeleteDocument = async (docId: string) => {
+    if (!selectedQuotation) return
+    setActionLoadingText('Eliminando documento del directorio...')
+    setIsActionLoading(true)
+    try {
+      const updated = await api.delete(`/quotations/${selectedQuotation.id}/documents/${docId}`)
+      setSelectedQuotation(updated.data)
+      showToast('Documento eliminado del directorio.', 'info')
+      fetchQuotations()
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Error al eliminar el documento', 'error')
+    } finally {
+      setIsActionLoading(false)
+    }
+  }
+
   // 1. Iniciar Flujo de Compra (Formulario enfocado exclusivamente en Cotización Inicial)
   const handleCreateQuotation = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -758,6 +774,168 @@ export default function CotizacionesPage() {
                 </div>
               )}
 
+              {/* Items Section: Permite seleccionar de bodega O ingresar un nuevo producto/material/herramienta */}
+              <div className="bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
+                <div className="flex justify-between items-center">
+                  <label className="block font-bold text-xs text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <span>📦</span> Productos, Materiales o Herramientas a Cotizar
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleAddItemRow}
+                    className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold text-xs shadow flex items-center gap-1 transition"
+                  >
+                    <span>➕</span> Agregar Ítem
+                  </button>
+                </div>
+
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Puede ingresar cualquier producto, material o herramienta (esté o no registrado en la bodega).
+                </p>
+
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                  {newItems.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2"
+                    >
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                        {/* Name input with autocomplete from warehouse or free text */}
+                        <div className="sm:col-span-6">
+                          <label className="text-[10px] font-bold text-slate-500 block mb-0.5">
+                            Nombre del Producto / Material / Herramienta *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            list={`warehouse-prod-list-${idx}`}
+                            value={item.productName}
+                            onChange={(e) => {
+                              const val = e.target.value
+                              setNewItems((prev) => {
+                                const copy = [...prev]
+                                copy[idx].productName = val
+                                const matched = warehouseProducts.find((p) => p.name === val)
+                                if (matched) {
+                                  copy[idx].productId = matched.id
+                                  copy[idx].unitMeasure = matched.unit || 'UN'
+                                  copy[idx].estimatedUnitPrice = matched.unitCost || matched.unitPrice || 0
+                                } else {
+                                  copy[idx].productId = undefined
+                                }
+                                return copy
+                              })
+                            }}
+                            placeholder="Ej: Multímetro Digital / Cable UTP Cat6 / Taladro Inalámbrico"
+                            className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-900 dark:text-white"
+                          />
+                          <datalist id={`warehouse-prod-list-${idx}`}>
+                            {warehouseProducts.map((p) => (
+                              <option key={p.id} value={p.name}>
+                                [{p.sku}] - Stock: {p.stock} {p.unit}
+                              </option>
+                            ))}
+                          </datalist>
+                        </div>
+
+                        {/* Quantity */}
+                        <div className="sm:col-span-2">
+                          <label className="text-[10px] font-bold text-slate-500 block mb-0.5">
+                            Cantidad *
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            required
+                            value={item.quantity}
+                            onChange={(e) => {
+                              const qty = parseInt(e.target.value) || 1
+                              setNewItems((prev) => {
+                                const copy = [...prev]
+                                copy[idx].quantity = qty
+                                return copy
+                              })
+                            }}
+                            className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-bold text-slate-900 dark:text-white text-center"
+                          />
+                        </div>
+
+                        {/* Unit */}
+                        <div className="sm:col-span-2">
+                          <label className="text-[10px] font-bold text-slate-500 block mb-0.5">
+                            Unidad
+                          </label>
+                          <select
+                            value={item.unitMeasure || 'UN'}
+                            onChange={(e) => {
+                              const unit = e.target.value
+                              setNewItems((prev) => {
+                                const copy = [...prev]
+                                copy[idx].unitMeasure = unit
+                                return copy
+                              })
+                            }}
+                            className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-white font-bold"
+                          >
+                            <option value="UN">UN</option>
+                            <option value="MTS">MTS</option>
+                            <option value="KG">KG</option>
+                            <option value="LT">LT</option>
+                            <option value="GL">Global</option>
+                            <option value="CAJA">CAJA</option>
+                            <option value="PAR">PAR</option>
+                          </select>
+                        </div>
+
+                        {/* Delete row button */}
+                        <div className="sm:col-span-2 flex justify-end items-end h-full">
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveItemRow(idx)}
+                            disabled={newItems.length === 1}
+                            className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-lg disabled:opacity-30 transition font-bold text-xs w-full text-center border border-rose-200 dark:border-rose-900"
+                            title="Eliminar fila"
+                          >
+                            🗑️ Quitar
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+                        <input
+                          type="text"
+                          value={item.linkUrl || ''}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            setNewItems((prev) => {
+                              const copy = [...prev]
+                              copy[idx].linkUrl = val
+                              return copy
+                            })
+                          }}
+                          placeholder="🔗 Link de Referencia / Web Proveedor (opcional)"
+                          className="w-full px-2.5 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] text-slate-900 dark:text-white"
+                        />
+                        <input
+                          type="text"
+                          value={item.itemNotes || ''}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            setNewItems((prev) => {
+                              const copy = [...prev]
+                              copy[idx].itemNotes = val
+                              return copy
+                            })
+                          }}
+                          placeholder="📝 Especificación técnica / Nota del ítem (opcional)"
+                          className="w-full px-2.5 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] text-slate-900 dark:text-white"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               {/* Initial document upload */}
               <div className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
                 <label className="block font-semibold text-xs text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
@@ -881,13 +1059,23 @@ export default function CotizacionesPage() {
                               {doc.name}
                             </p>
                           </div>
-                          <a
-                            href={doc.url}
-                            download={doc.name}
-                            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-md text-[11px] transition shadow"
-                          >
-                            ⬇️ Ver
-                          </a>
+                          <div className="flex items-center gap-1.5">
+                            <a
+                              href={doc.url}
+                              download={doc.name}
+                              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-md text-[11px] transition shadow"
+                            >
+                              ⬇️ Ver
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteDocument(doc.id)}
+                              className="px-2 py-1 bg-rose-100 hover:bg-rose-200 dark:bg-rose-950/80 text-rose-600 font-bold rounded-md text-[11px] transition border border-rose-300 dark:border-rose-800"
+                              title="Eliminar este documento"
+                            >
+                              🗑️
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -934,7 +1122,7 @@ export default function CotizacionesPage() {
                   <span>⚙️</span> Seguimiento de Tramitación y Retiro
                 </h4>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <button
                     type="button"
                     onClick={() => handleUpdateWorkflowStatus('IN_PROCESSING')}
@@ -948,7 +1136,15 @@ export default function CotizacionesPage() {
                     onClick={() => handleUpdateWorkflowStatus('READY_FOR_PICKUP')}
                     className="py-2.5 bg-teal-600 hover:bg-teal-500 text-white font-bold rounded-xl text-xs transition shadow flex items-center justify-center gap-1"
                   >
-                    <span>📦</span> Marcar "Materiales Listos para Retiro / Despacho"
+                    <span>📦</span> Marcar "Materiales Listos"
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleUpdateWorkflowStatus('COMPLETED')}
+                    className="py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition shadow flex items-center justify-center gap-1"
+                  >
+                    <span>✅</span> Terminar / Finalizar Flujo
                   </button>
                 </div>
               </div>

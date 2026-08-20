@@ -228,10 +228,6 @@ export class RequestsService implements OnModuleInit {
       throw new BadRequestException('Debes indicar el nombre de la persona responsable que recibe los materiales');
     }
 
-    if (!dto.photoUrl || dto.photoUrl.trim() === '') {
-      throw new BadRequestException('Debes adjuntar la fotografía de respaldo de la entrega de materiales');
-    }
-
     let vanObj: any = null;
     if (dto.vanId) {
       vanObj = await this.prisma.van.findUnique({ where: { id: dto.vanId } });

@@ -13,24 +13,14 @@ export function determineItemType(
   }
 
   const subcat = (product.subcategory || '').toLowerCase().trim();
-  const cat = (product.category || '').toLowerCase().trim();
   const name = (product.name || '').toLowerCase().trim();
 
-  // 1. Subcategory checks (subcategoría indica si el producto es herramienta o equipo)
-  if (
-    subcat.includes('herramienta') ||
-    subcat.includes('fusionadora') ||
-    subcat.includes('equipo') ||
-    subcat.includes('maquinaria') ||
-    subcat.includes('instrumento') ||
-    subcat.includes('tester') ||
-    subcat.includes('certificador') ||
-    subcat.includes('medidor')
-  ) {
+  // 1. Subcategory checks: Only classify as HERRAMIENTA if subcategory contains 'herramienta'
+  if (subcat.includes('herramienta')) {
     return 'HERRAMIENTA';
   }
 
-  // 2. Name checks
+  // 2. Name checks for explicit tools
   if (
     name.includes('fusionadora') ||
     name.includes('empalmadora') ||
@@ -45,12 +35,9 @@ export function determineItemType(
     name.includes('cortadora') ||
     name.includes('escalera')
   ) {
-    return 'HERRAMIENTA';
-  }
-
-  // 3. Category EQUIPOS (salvo que sea expresamente insumo/accesorio)
-  if (cat === 'equipos' && !subcat.includes('insumo') && !subcat.includes('accesorio')) {
-    return 'HERRAMIENTA';
+    if (!subcat.includes('insumo') && !subcat.includes('material')) {
+      return 'HERRAMIENTA';
+    }
   }
 
   const fallbackLower = (fallbackType || '').toLowerCase();

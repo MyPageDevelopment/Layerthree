@@ -323,11 +323,6 @@ export default function SolicitudesPage() {
       return
     }
 
-    if (!photoUrl) {
-      setDispatchError('Debes adjuntar una fotografía o archivo de comprobante de despacho')
-      return
-    }
-
     const itemsPayload = Object.entries(itemChecks).map(([itemId, val]) => ({
       itemId,
       isChecked: val.isChecked,
@@ -1224,7 +1219,7 @@ export default function SolicitudesPage() {
               {/* Photo Upload Options for Bodeguero */}
               <div>
                 <label className="block font-semibold mb-1">
-                  📷 Fotografía de Comprobante de Entrega <span className="text-red-500">*</span>
+                  📷 Fotografía de Comprobante de Entrega <span className="text-slate-400 font-normal">(Opcional)</span>
                 </label>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">

@@ -42,19 +42,9 @@ interface Product {
 function determineItemType(prod?: Product | null): 'HERRAMIENTA' | 'MATERIAL' {
   if (!prod) return 'MATERIAL'
   const subcat = (prod.subcategory || '').toLowerCase().trim()
-  const cat = (prod.category || '').toLowerCase().trim()
   const name = (prod.name || '').toLowerCase().trim()
 
-  if (
-    subcat.includes('herramienta') ||
-    subcat.includes('fusionadora') ||
-    subcat.includes('equipo') ||
-    subcat.includes('maquinaria') ||
-    subcat.includes('instrumento') ||
-    subcat.includes('tester') ||
-    subcat.includes('certificador') ||
-    subcat.includes('medidor')
-  ) {
+  if (subcat.includes('herramienta')) {
     return 'HERRAMIENTA'
   }
 
@@ -72,11 +62,9 @@ function determineItemType(prod?: Product | null): 'HERRAMIENTA' | 'MATERIAL' {
     name.includes('cortadora') ||
     name.includes('escalera')
   ) {
-    return 'HERRAMIENTA'
-  }
-
-  if (cat === 'equipos' && !subcat.includes('insumo') && !subcat.includes('accesorio')) {
-    return 'HERRAMIENTA'
+    if (!subcat.includes('insumo') && !subcat.includes('material')) {
+      return 'HERRAMIENTA'
+    }
   }
 
   return 'MATERIAL'
