@@ -186,7 +186,6 @@ export default function CotizacionesPage() {
   }
 
   const handleRemoveItemRow = (index: number) => {
-    if (newItems.length === 1) return
     setNewItems((prev) => prev.filter((_, i) => i !== index))
   }
 
@@ -269,6 +268,11 @@ export default function CotizacionesPage() {
     e.preventDefault()
 
     const validItems = newItems.filter((i) => i.productName.trim().length > 0)
+    if (validItems.length === 0 && !newAttachmentUrl && !newNotes.trim()) {
+      showToast('Debes ingresar al menos un producto, adjuntar un documento o ingresar observaciones.', 'warning', 'Cotización Vacía')
+      return
+    }
+
     setActionLoadingText('Iniciando flujo de cotización y compra...')
     setIsActionLoading(true)
 
@@ -793,11 +797,11 @@ export default function CotizacionesPage() {
                 </div>
               )}
 
-              {/* Items Section: Permite seleccionar de bodega O ingresar un nuevo producto/material/herramienta */}
+              {/* Items Section: Permite seleccionar de bodega O ingresar un nuevo producto/material/herramienta (Opcional) */}
               <div className="bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
                 <div className="flex justify-between items-center">
                   <label className="block font-bold text-xs text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                    <span>📦</span> Productos, Materiales o Herramientas a Cotizar
+                    <span>📦</span> Productos / Herramientas a Cotizar <span className="text-[10px] font-normal text-slate-500">(Opcional)</span>
                   </label>
                   <button
                     type="button"
@@ -809,26 +813,37 @@ export default function CotizacionesPage() {
                 </div>
 
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Puede ingresar cualquier producto, material o herramienta (esté o no registrado en la bodega).
+                  Opcional: Puede agregar la lista de ítems en tabla o únicamente adjuntar la cotización en archivo/PDF más abajo.
                 </p>
 
-                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                  {newItems.map((item, idx) => (
-                    <div
-                      key={idx}
-                      className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2"
+                {newItems.length === 0 ? (
+                  <div className="p-3 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 rounded-xl text-blue-800 dark:text-blue-300 font-medium text-xs flex justify-between items-center">
+                    <span>ℹ️ Sin productos en tabla. Se creará la cotización respaldada por el documento adjunto.</span>
+                    <button
+                      type="button"
+                      onClick={handleAddItemRow}
+                      className="px-2.5 py-1 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 transition"
                     >
-                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
-                        {/* Name input with autocomplete from warehouse or free text */}
-                        <div className="sm:col-span-6">
-                          <label className="text-[10px] font-bold text-slate-500 block mb-0.5">
-                            Nombre del Producto / Material / Herramienta *
-                          </label>
-                          <input
-                            type="text"
-                            required
-                            list={`warehouse-prod-list-${idx}`}
-                            value={item.productName}
+                      + Agregar Ítem
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                    {newItems.map((item, idx) => (
+                      <div
+                        key={idx}
+                        className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2"
+                      >
+                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                          {/* Name input with autocomplete from warehouse or free text */}
+                          <div className="sm:col-span-6">
+                            <label className="text-[10px] font-bold text-slate-500 block mb-0.5">
+                              Nombre del Producto / Material / Herramienta (Opcional)
+                            </label>
+                            <input
+                              type="text"
+                              list={`warehouse-prod-list-${idx}`}
+                              value={item.productName}
                             onChange={(e) => {
                               const val = e.target.value
                               setNewItems((prev) => {
@@ -860,12 +875,11 @@ export default function CotizacionesPage() {
                         {/* Quantity */}
                         <div className="sm:col-span-2">
                           <label className="text-[10px] font-bold text-slate-500 block mb-0.5">
-                            Cantidad *
+                            Cantidad
                           </label>
                           <input
                             type="number"
                             min="1"
-                            required
                             value={item.quantity}
                             onChange={(e) => {
                               const qty = parseInt(e.target.value) || 1
@@ -911,9 +925,8 @@ export default function CotizacionesPage() {
                           <button
                             type="button"
                             onClick={() => handleRemoveItemRow(idx)}
-                            disabled={newItems.length === 1}
-                            className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-lg disabled:opacity-30 transition font-bold text-xs w-full text-center border border-rose-200 dark:border-rose-900"
-                            title="Eliminar fila"
+                            className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-lg transition font-bold text-xs w-full text-center border border-rose-200 dark:border-rose-900"
+                            title="Quitar ítem"
                           >
                             🗑️ Quitar
                           </button>
@@ -953,7 +966,8 @@ export default function CotizacionesPage() {
                     </div>
                   ))}
                 </div>
-              </div>
+              )}
+            </div>
 
               {/* Initial document upload */}
               <div className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
