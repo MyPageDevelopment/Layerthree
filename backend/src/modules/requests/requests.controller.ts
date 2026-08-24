@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Param,
   UseGuards,
@@ -84,4 +85,21 @@ export class RequestsController {
   ) {
     return this.requestsService.dispatch(id, req.user.id, dto);
   }
+
+  @Patch(':id/reject')
+  @ApiOperation({ summary: 'Rechazar o cancelar solicitud de materiales' })
+  async reject(
+    @Request() req,
+    @Param('id') id: string,
+    @Body('reason') reason?: string,
+  ) {
+    return this.requestsService.reject(id, req.user, reason);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Eliminar solicitud de materiales' })
+  async remove(@Param('id') id: string) {
+    return this.requestsService.remove(id);
+  }
 }
+

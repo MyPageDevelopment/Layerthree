@@ -6,6 +6,7 @@ import api from '@/lib/api'
 import { getUser } from '@/lib/auth'
 import type { User, Product } from '@/types'
 import LoadingOverlay from '@/components/LoadingOverlay'
+import ConfirmModal from '@/components/ConfirmModal'
 
 interface RequestItem {
   id: string
@@ -146,6 +147,9 @@ export default function SolicitudesPage() {
 
   // Proof Photo View Modal
   const [viewPhotoRequest, setViewPhotoRequest] = useState<MaterialRequest | null>(null)
+
+  // Request Deletion Confirm State
+  const [deleteConfirmRequestId, setDeleteConfirmRequestId] = useState<string | null>(null)
 
   useEffect(() => {
     setCurrentUser(getUser())
@@ -401,6 +405,38 @@ export default function SolicitudesPage() {
     }
   }
 
+  // Handle Reject Request
+  const handleRejectRequest = async (id: string) => {
+    setActionLoadingText('Rechazando / Cancelando solicitud...')
+    setIsActionLoading(true)
+    try {
+      await api.patch(`/requests/${id}/reject`, { reason: 'Rechazada por el usuario en solicitudes' })
+      fetchData()
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Error al rechazar la solicitud')
+    } finally {
+      setIsActionLoading(false)
+    }
+  }
+
+  // Handle Delete Request
+  const handleConfirmDeleteRequest = async () => {
+    if (!deleteConfirmRequestId) return
+    const reqId = deleteConfirmRequestId
+    setDeleteConfirmRequestId(null)
+
+    setActionLoadingText('Eliminando solicitud...')
+    setIsActionLoading(true)
+    try {
+      await api.delete(`/requests/${reqId}`)
+      fetchData()
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Error al eliminar la solicitud')
+    } finally {
+      setIsActionLoading(false)
+    }
+  }
+
   // Handle Supplier Quote Generation (Bodeguero)
   const handleOpenSupplierQuoteModal = (req: MaterialRequest) => {
     setSupplierQuoteRequest(req)
@@ -585,6 +621,10 @@ export default function SolicitudesPage() {
                         <span className="px-2 py-0.5 text-[10px] rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 font-bold border border-amber-300">
                           ⏳ Pendiente
                         </span>
+                      ) : r.status === 'REJECTED' ? (
+                        <span className="px-2 py-0.5 text-[10px] rounded-full bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 font-bold border border-rose-300">
+                          🚫 Rechazado / Cancelado
+                        </span>
                       ) : (
                         <span className="px-2 py-0.5 text-[10px] rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 font-bold border border-emerald-300">
                           ✅ Despachado
@@ -690,6 +730,24 @@ export default function SolicitudesPage() {
                           className="w-full sm:w-auto py-1.5 px-3 bg-emerald-600 text-white rounded-xl text-xs font-bold shadow"
                         >
                           Check & Despachar
+                        </button>
+                      )}
+                      {r.status === 'PENDING' && canDispatch && (
+                        <button
+                          onClick={() => handleRejectRequest(r.id)}
+                          className="w-full sm:w-auto py-1.5 px-3 bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 rounded-xl text-xs font-bold border border-amber-300 dark:border-amber-800 flex items-center justify-center gap-1 transition"
+                          title="Rechazar o cancelar esta solicitud de materiales"
+                        >
+                          <span>🚫</span> Rechazar
+                        </button>
+                      )}
+                      {(canCreateRequest || canDispatch) && (
+                        <button
+                          onClick={() => setDeleteConfirmRequestId(r.id)}
+                          className="w-full sm:w-auto py-1.5 px-3 bg-rose-100 hover:bg-rose-200 dark:bg-rose-950/80 text-rose-600 font-bold rounded-xl text-xs flex items-center justify-center gap-1 border border-rose-300 dark:border-rose-800 transition"
+                          title="Eliminar esta solicitud"
+                        >
+                          <span>🗑️</span> Eliminar
                         </button>
                       )}
                       {r.status === 'DISPATCHED' && r.photoUrl && (
@@ -838,6 +896,10 @@ export default function SolicitudesPage() {
                               <span className="px-2.5 py-1 text-xs rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-300 dark:border-amber-800 font-semibold flex items-center gap-1 w-fit">
                                 <span>⏳</span> Pendiente
                               </span>
+                            ) : r.status === 'REJECTED' ? (
+                              <span className="px-2.5 py-1 text-xs rounded-full bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-300 dark:border-rose-800 font-semibold flex items-center gap-1 w-fit">
+                                <span>🚫</span> Rechazado / Cancelado
+                              </span>
                             ) : (
                               <span className="px-2.5 py-1 text-xs rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 font-semibold flex items-center gap-1 w-fit">
                                 <span>✅</span> Despachado
@@ -890,6 +952,24 @@ export default function SolicitudesPage() {
                                 className="w-full px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow transition active:scale-95"
                               >
                                 Check & Despachar
+                              </button>
+                            )}
+                            {r.status === 'PENDING' && canDispatch && (
+                              <button
+                                onClick={() => handleRejectRequest(r.id)}
+                                className="w-full px-3 py-1.5 bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 rounded-lg text-xs font-bold border border-amber-300 dark:border-amber-800 transition flex items-center justify-center gap-1"
+                                title="Rechazar o cancelar esta solicitud de materiales"
+                              >
+                                <span>🚫</span> Rechazar Solicitud
+                              </button>
+                            )}
+                            {(canCreateRequest || canDispatch) && (
+                              <button
+                                onClick={() => setDeleteConfirmRequestId(r.id)}
+                                className="w-full px-3 py-1.5 bg-rose-100 hover:bg-rose-200 dark:bg-rose-950/80 text-rose-600 rounded-lg text-xs font-bold border border-rose-300 dark:border-rose-800 transition flex items-center justify-center gap-1"
+                                title="Eliminar esta solicitud de materiales"
+                              >
+                                <span>🗑️</span> Eliminar Solicitud
                               </button>
                             )}
                             {r.status === 'DISPATCHED' && r.photoUrl && (
@@ -1530,6 +1610,18 @@ export default function SolicitudesPage() {
           </div>
         </div>
       )}
+
+      {/* MODAL CONFIRMACIÓN DE ELIMINACIÓN DE SOLICITUD */}
+      <ConfirmModal
+        isOpen={Boolean(deleteConfirmRequestId)}
+        title="Eliminar Solicitud de Materiales"
+        message="¿Estás seguro de eliminar permanentemente esta solicitud de materiales? Esta acción borrará la solicitud y sus ítems requeridos."
+        confirmText="Sí, Eliminar Solicitud"
+        cancelText="Cancelar"
+        variant="danger"
+        onConfirm={handleConfirmDeleteRequest}
+        onCancel={() => setDeleteConfirmRequestId(null)}
+      />
 
       <LoadingOverlay isOpen={isActionLoading} message={actionLoadingText} />
     </div>

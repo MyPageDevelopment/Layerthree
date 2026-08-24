@@ -406,4 +406,49 @@ export class RequestsService implements OnModuleInit {
         : 'Formato generado correctamente (modo simulación SMTP)',
     };
   }
+
+  async reject(id: string, user: any, reason?: string) {
+    const request = await this.findOne(id);
+    if (request.status === 'DISPATCHED') {
+      throw new BadRequestException('No se puede rechazar una solicitud que ya fue despachada');
+    }
+
+    const updated = await this.prisma.materialRequest.update({
+      where: { id },
+      data: {
+        status: 'REJECTED',
+        notes: reason ? `${request.notes || ''}\n[Rechazada por ${user?.name || user?.email}]: ${reason}` : request.notes,
+      },
+      include: {
+        items: { include: { product: true } },
+        requestedBy: true,
+        assignedTo: true,
+        van: true,
+      },
+    });
+
+    await this.prisma.appNotification.create({
+      data: {
+        userId: request.requestedById,
+        title: `🚫 Solicitud Rechazada (${request.code})`,
+        message: `La solicitud de materiales para "${request.projectName}" fue rechazada/cancelada.`,
+        link: `/solicitudes?highlight=${request.id}`,
+      },
+    });
+
+    return updated;
+  }
+
+  async remove(id: string) {
+    const request = await this.findOne(id);
+
+    await this.prisma.materialRequestItem.deleteMany({
+      where: { materialRequestId: id },
+    });
+
+    return this.prisma.materialRequest.delete({
+      where: { id },
+    });
+  }
 }
+

@@ -686,16 +686,7 @@ export default function CotizacionesPage() {
                   <span className="text-slate-400 font-mono">
                     {new Date(q.createdAt).toLocaleDateString('es-CL')}
                   </span>
-                  <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                    {q.status !== 'CANCELLED' && q.status !== 'COMPLETED' && (
-                      <button
-                        onClick={() => handleRejectQuotation(q.id)}
-                        className="px-2.5 py-1.5 bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 font-bold rounded-xl transition border border-amber-300 dark:border-amber-800 text-xs flex items-center gap-1"
-                        title="Rechazar o Cancelar Cotización"
-                      >
-                        <span>🚫</span> Rechazar
-                      </button>
-                    )}
+                  <div className="flex gap-2">
                     <button
                       onClick={() => setDeleteConfirmId(q.id)}
                       className="px-2.5 py-1.5 bg-rose-100 hover:bg-rose-200 dark:bg-rose-950/80 text-rose-600 font-bold rounded-xl transition border border-rose-300 dark:border-rose-800 text-xs flex items-center gap-1"
@@ -1206,24 +1197,13 @@ export default function CotizacionesPage() {
 
             {/* Modal Actions */}
             <div className="flex justify-between items-center pt-3 border-t border-slate-200 dark:border-slate-800 shrink-0">
-              <div className="flex items-center gap-2">
-                {selectedQuotation.status !== 'CANCELLED' && (
-                  <button
-                    type="button"
-                    onClick={() => handleRejectQuotation(selectedQuotation.id)}
-                    className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl text-xs transition flex items-center gap-1 shadow"
-                  >
-                    <span>🚫</span> Rechazar / Cancelar
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setDeleteConfirmId(selectedQuotation.id)}
-                  className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs transition flex items-center gap-1 shadow"
-                >
-                  <span>🗑️</span> Eliminar Flujo
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmId(selectedQuotation.id)}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs transition flex items-center gap-1"
+              >
+                <span>🗑️</span> Eliminar Flujo
+              </button>
 
               <button
                 type="button"
