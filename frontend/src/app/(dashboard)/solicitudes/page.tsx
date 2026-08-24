@@ -46,6 +46,57 @@ const CATEGORY_COLORS: Record<string, { bg: string; text: string; border: string
   INSUMOS: { bg: 'bg-cyan-100 dark:bg-cyan-950/80', text: 'text-cyan-700 dark:text-cyan-300', border: 'border-cyan-300 dark:border-cyan-800' },
 }
 
+function isToolItem(item: RequestItem): boolean {
+  if (!item.product) {
+    const name = (item.productName || '').toLowerCase().trim()
+    return (
+      name.includes('fusionadora') ||
+      name.includes('empalmadora') ||
+      name.includes('taladro') ||
+      name.includes('multimetro') ||
+      name.includes('multímetro') ||
+      name.includes('otdr') ||
+      name.includes('certificador') ||
+      name.includes('cleaver') ||
+      name.includes('peladora') ||
+      name.includes('prensaterminal') ||
+      name.includes('cortadora') ||
+      name.includes('escalera') ||
+      name.includes('herramienta')
+    )
+  }
+
+  const prod = item.product
+  const category = (prod.category || '').toUpperCase()
+  const subcategory = (prod.subcategory || '').toLowerCase().trim()
+  const name = (prod.name || item.productName || '').toLowerCase().trim()
+
+  if (category === 'HERRAMIENTAS' || subcategory.includes('herramienta')) {
+    return true
+  }
+
+  if (
+    name.includes('fusionadora') ||
+    name.includes('empalmadora') ||
+    name.includes('taladro') ||
+    name.includes('multimetro') ||
+    name.includes('multímetro') ||
+    name.includes('otdr') ||
+    name.includes('certificador') ||
+    name.includes('cleaver') ||
+    name.includes('peladora') ||
+    name.includes('prensaterminal') ||
+    name.includes('cortadora') ||
+    name.includes('escalera')
+  ) {
+    if (!subcategory.includes('insumo') && !subcategory.includes('material')) {
+      return true
+    }
+  }
+
+  return false
+}
+
 export default function SolicitudesPage() {
   const searchParams = useSearchParams()
   const highlightId = searchParams.get('highlight')
@@ -566,7 +617,7 @@ export default function SolicitudesPage() {
                             <span className="flex items-center gap-2">
                               <span>📦</span>
                               <span>{r.items.length} {r.items.length === 1 ? 'Ítem Requerido' : 'Ítems Requeridos'}</span>
-                              {r.items.some(i => (i.product?.stock ?? 0) < i.requestedQuantity) && (
+                              {r.status === 'PENDING' && r.items.some(i => !isToolItem(i) && (i.product?.stock ?? 0) < i.requestedQuantity) && (
                                 <span className="px-1.5 py-0.5 text-[9px] bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 font-bold rounded">
                                   Sin Stock
                                 </span>
@@ -580,8 +631,9 @@ export default function SolicitudesPage() {
                               {r.items.map((item) => {
                                 const isUtp = (item.product?.name || item.productName || '').toUpperCase().includes('UTP') || (item.product?.sku || item.sku || '').toUpperCase().includes('UTP')
                                 const unitStr = isUtp ? 'MTS' : (item.unitMeasure || item.product?.unit || 'UN')
+                                const isTool = isToolItem(item)
                                 const currentStock = item.product?.stock ?? 0
-                                const hasEnoughStock = currentStock >= item.requestedQuantity
+                                const hasEnoughStock = isTool || currentStock >= item.requestedQuantity
 
                                 return (
                                   <div key={item.id} className="flex items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800/50 pb-1 last:border-0">
@@ -589,11 +641,13 @@ export default function SolicitudesPage() {
                                       • {item.product?.name || item.productName} (x{item.requestedQuantity} {unitStr})
                                     </span>
                                     <span className={`px-2 py-0.5 text-[10px] rounded font-semibold ${
-                                      hasEnoughStock
-                                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                                        : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
+                                      isTool
+                                        ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border border-purple-300'
+                                        : hasEnoughStock
+                                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                                          : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
                                     }`}>
-                                      {hasEnoughStock ? `Stock: ${currentStock}` : `Sin Stock (${currentStock})`}
+                                      {isTool ? 'Herramienta (Camioneta/Terreno)' : hasEnoughStock ? `Stock: ${currentStock}` : `Sin Stock (${currentStock})`}
                                     </span>
                                   </div>
                                 )
@@ -671,7 +725,7 @@ export default function SolicitudesPage() {
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                     {requests.map((r) => {
                       const isHighlighted = highlightId === r.id
-                      const hasMissingStock = r.items.some(i => (i.product?.stock ?? 0) < i.requestedQuantity)
+                      const hasMissingStock = r.status === 'PENDING' && r.items.some(i => !isToolItem(i) && (i.product?.stock ?? 0) < i.requestedQuantity)
 
                       return (
                         <tr
@@ -752,8 +806,9 @@ export default function SolicitudesPage() {
                                     {r.items.map((item) => {
                                       const isUtp = (item.product?.name || item.productName || '').toUpperCase().includes('UTP') || (item.product?.sku || item.sku || '').toUpperCase().includes('UTP')
                                       const unitStr = isUtp ? 'MTS' : (item.unitMeasure || item.product?.unit || 'UN')
+                                      const isTool = isToolItem(item)
                                       const currentStock = item.product?.stock ?? 0
-                                      const hasEnoughStock = currentStock >= item.requestedQuantity
+                                      const hasEnoughStock = isTool || currentStock >= item.requestedQuantity
                                       const displayName = item.product?.name || item.productName || 'Producto'
 
                                       return (
@@ -762,11 +817,13 @@ export default function SolicitudesPage() {
                                             • {displayName} (<strong>{item.requestedQuantity} {unitStr}</strong>)
                                           </span>
                                           <span className={`px-2 py-0.5 text-[10px] rounded font-bold shrink-0 ${
-                                            hasEnoughStock
-                                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                                              : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 border border-red-300'
+                                            isTool
+                                              ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border border-purple-300'
+                                              : hasEnoughStock
+                                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                                                : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 border border-red-300'
                                           }`}>
-                                            {hasEnoughStock ? `Stock: ${currentStock}` : `Sin Stock (${currentStock})`}
+                                            {isTool ? 'Herramienta (Camioneta/Terreno)' : hasEnoughStock ? `Stock: ${currentStock}` : `Sin Stock (${currentStock})`}
                                           </span>
                                         </div>
                                       )
