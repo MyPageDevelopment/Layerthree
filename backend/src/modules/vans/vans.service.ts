@@ -330,7 +330,12 @@ export class VansService {
     });
   }
 
-  async removeItem(vanId: string, itemId: string, user?: any) {
+  async removeItem(
+    vanId: string,
+    itemId: string,
+    dto?: { quantity?: number; returnToWarehouse?: boolean; notes?: string },
+    user?: any,
+  ) {
     const item = await this.prisma.vanItem.findUnique({
       where: { id: itemId },
     });
@@ -343,33 +348,64 @@ export class VansService {
     const uId = user?.id || user?.userId;
     const userName = user ? (user.name || user.email) : 'Sistema';
 
-    if (item.productId && item.quantity > 0) {
+    const returnToWarehouse = dto?.returnToWarehouse ?? true;
+    const qtyToRemove =
+      dto?.quantity && dto.quantity > 0 ? Math.min(dto.quantity, item.quantity) : item.quantity;
+    const remainingQty = item.quantity - qtyToRemove;
+
+    if (item.productId && qtyToRemove > 0) {
       const product = await this.prisma.product.findUnique({
         where: { id: item.productId },
       });
 
       if (product) {
-        await this.prisma.product.update({
-          where: { id: product.id },
-          data: { stock: { increment: item.quantity } },
-        });
-
-        if (uId) {
-          await this.prisma.movement.create({
-            data: {
-              productId: product.id,
-              type: 'ENTRY',
-              quantity: item.quantity,
-              notes: `📥 Retiro de ítem de camioneta (${van?.plate || vanId}) y devolución a Bodega por ${userName}`,
-              userId: uId,
-            },
+        if (returnToWarehouse) {
+          await this.prisma.product.update({
+            where: { id: product.id },
+            data: { stock: { increment: qtyToRemove } },
           });
+
+          if (uId) {
+            await this.prisma.movement.create({
+              data: {
+                productId: product.id,
+                type: 'ENTRY',
+                quantity: qtyToRemove,
+                notes:
+                  dto?.notes ||
+                  `📥 Retiro de ítem (${qtyToRemove} un.) de camioneta (${van?.plate || vanId}) y devolución a Bodega por ${userName}`,
+                userId: uId,
+              },
+            });
+          }
+        } else {
+          // Material ocupado/consumido en terreno (Eliminar de todo)
+          if (uId) {
+            await this.prisma.movement.create({
+              data: {
+                productId: product.id,
+                type: 'EXIT',
+                quantity: qtyToRemove,
+                notes:
+                  dto?.notes ||
+                  `🔥 Material ocupado/consumido en terreno (${qtyToRemove} un.) desde camioneta (${van?.plate || vanId}) por ${userName}`,
+                userId: uId,
+              },
+            });
+          }
         }
       }
     }
 
-    return this.prisma.vanItem.delete({
+    if (remainingQty <= 0) {
+      return this.prisma.vanItem.delete({
+        where: { id: itemId },
+      });
+    }
+
+    return this.prisma.vanItem.update({
       where: { id: itemId },
+      data: { quantity: remainingQty },
     });
   }
 }

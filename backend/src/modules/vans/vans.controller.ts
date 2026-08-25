@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   Request,
 } from '@nestjs/common';
@@ -14,6 +15,8 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { VansService } from './vans.service';
 import { CreateVanDto } from './dto/create-van.dto';
 import { AddVanItemDto } from './dto/add-van-item.dto';
+
+import { RemoveVanItemDto } from './dto/remove-van-item.dto';
 
 @ApiTags('vans')
 @ApiBearerAuth()
@@ -70,8 +73,36 @@ export class VansController {
   }
 
   @Delete(':id/items/:itemId')
-  @ApiOperation({ summary: 'Eliminar ítem de la camioneta' })
-  removeItem(@Param('id') id: string, @Param('itemId') itemId: string, @Request() req: any) {
-    return this.vansService.removeItem(id, itemId, req.user);
+  @ApiOperation({ summary: 'Eliminar o retirar ítem de la camioneta' })
+  removeItem(
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Query() queryDto: RemoveVanItemDto,
+    @Body() bodyDto: RemoveVanItemDto,
+    @Request() req: any,
+  ) {
+    const returnToWarehouseRaw = bodyDto?.returnToWarehouse ?? queryDto?.returnToWarehouse;
+    const returnToWarehouse =
+      typeof returnToWarehouseRaw === 'string'
+        ? (returnToWarehouseRaw as string).toLowerCase() === 'true'
+        : (returnToWarehouseRaw ?? true);
+
+    const dto: RemoveVanItemDto = {
+      quantity: bodyDto?.quantity ?? (queryDto?.quantity ? Number(queryDto.quantity) : undefined),
+      returnToWarehouse,
+      notes: bodyDto?.notes || queryDto?.notes,
+    };
+    return this.vansService.removeItem(id, itemId, dto, req.user);
+  }
+
+  @Post(':id/items/:itemId/remove')
+  @ApiOperation({ summary: 'Retirar o dar de baja ítem de la camioneta' })
+  removeItemPost(
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body() bodyDto: RemoveVanItemDto,
+    @Request() req: any,
+  ) {
+    return this.vansService.removeItem(id, itemId, bodyDto, req.user);
   }
 }

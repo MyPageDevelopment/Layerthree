@@ -99,6 +99,14 @@ export default function CamionetasPage() {
   const [itemQuantity, setItemQuantity] = useState<number>(1)
   const [deductFromWarehouse, setDeductFromWarehouse] = useState(true)
 
+  // Removal modal state
+  const [showRemoveModal, setShowRemoveModal] = useState(false)
+  const [itemToRemove, setItemToRemove] = useState<VanItem | null>(null)
+  const [removeQty, setRemoveQty] = useState<number>(1)
+  const [returnToWarehouse, setReturnToWarehouse] = useState<boolean>(true)
+  const [removeNotes, setRemoveNotes] = useState<string>('')
+  const [isSubmittingRemove, setIsSubmittingRemove] = useState<boolean>(false)
+
   useEffect(() => {
     fetchVans()
     fetchProducts()
@@ -241,18 +249,35 @@ export default function CamionetasPage() {
     }
   }
 
-  const handleRemoveItem = async (itemId: string) => {
-    if (!selectedVan || !confirm('¿Deseas quitar este ítem de la camioneta?')) return
+  const handleOpenRemoveModal = (item: VanItem, initialQty?: number) => {
+    setItemToRemove(item)
+    setRemoveQty(initialQty !== undefined ? Math.min(initialQty, item.quantity) : item.quantity)
+    setReturnToWarehouse(true)
+    setRemoveNotes('')
+    setShowRemoveModal(true)
+  }
+
+  const handleConfirmRemoval = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedVan || !itemToRemove) return
     try {
-      await api.delete(`/vans/${selectedVan.id}/items/${itemId}`)
-      if (selectedVan) {
-        const updatedItems = (selectedVan.items || []).filter((i) => i.id !== itemId)
-        setSelectedVan({ ...selectedVan, items: updatedItems })
-      }
+      setIsSubmittingRemove(true)
+      await api.post(`/vans/${selectedVan.id}/items/${itemToRemove.id}/remove`, {
+        quantity: removeQty,
+        returnToWarehouse,
+        notes: removeNotes || undefined,
+      })
+      setShowRemoveModal(false)
+      setItemToRemove(null)
+      setRemoveNotes('')
+      // Refresh selected van detail and full lists
+      handleOpenManageItems(selectedVan)
       fetchVans()
       fetchProducts()
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Error al quitar ítem')
+      alert(err.response?.data?.message || 'Error al procesar el retiro del ítem')
+    } finally {
+      setIsSubmittingRemove(false)
     }
   }
 
@@ -658,11 +683,12 @@ export default function CamionetasPage() {
                         <p className="text-[10px] text-slate-400">Categoría: {item.category}</p>
                       </div>
 
-                      {/* Quantity Controls */}
+                      {/* Quantity & Action Controls */}
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => handleUpdateItemQty(item.id, item.quantity - 1)}
-                          className="w-7 h-7 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white font-bold flex items-center justify-center hover:bg-slate-300"
+                          onClick={() => handleOpenRemoveModal(item, 1)}
+                          className="w-7 h-7 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white font-bold flex items-center justify-center hover:bg-slate-300 transition"
+                          title="Retirar o dar de baja 1 unidad"
                         >
                           -
                         </button>
@@ -671,18 +697,19 @@ export default function CamionetasPage() {
                         </span>
                         <button
                           onClick={() => handleUpdateItemQty(item.id, item.quantity + 1)}
-                          className="w-7 h-7 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white font-bold flex items-center justify-center hover:bg-slate-300"
+                          className="w-7 h-7 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white font-bold flex items-center justify-center hover:bg-slate-300 transition"
+                          title="Cargar 1 unidad adicional desde Bodega"
                         >
                           +
                         </button>
                       </div>
 
                       <button
-                        onClick={() => handleRemoveItem(item.id)}
-                        className="p-1.5 text-slate-400 hover:text-red-500 transition"
-                        title="Quitar ítem"
+                        onClick={() => handleOpenRemoveModal(item, item.quantity)}
+                        className="px-2.5 py-1 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 font-bold rounded-lg transition text-[11px] flex items-center gap-1 border border-rose-200 dark:border-rose-800/50"
+                        title="Sacar / Dar de baja este ítem"
                       >
-                        🗑️
+                        <span>📤</span> Retirar
                       </button>
                     </div>
                   ))}
@@ -789,6 +816,180 @@ export default function CamionetasPage() {
               >
                 Confirmar Asignación
               </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Sacar / Dar de baja Ítem de Camioneta */}
+      {showRemoveModal && itemToRemove && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] my-auto flex flex-col">
+            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
+              <h4 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <span>📦</span> Retirar Material de Camioneta
+              </h4>
+              <button onClick={() => setShowRemoveModal(false)} className="text-slate-400 hover:text-white text-xl">
+                ✕
+              </button>
+            </div>
+
+            <div className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700/60 space-y-1">
+              <div className="flex items-center gap-2">
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                    itemToRemove.type === 'HERRAMIENTA'
+                      ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
+                      : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                  }`}
+                >
+                  {itemToRemove.type}
+                </span>
+                {itemToRemove.sku && <span className="font-mono text-slate-400 text-xs">{itemToRemove.sku}</span>}
+              </div>
+              <p className="font-bold text-slate-900 dark:text-white text-sm">{itemToRemove.name}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Disponible actualmente en camioneta:{' '}
+                <span className="font-extrabold text-blue-600 dark:text-blue-400">{itemToRemove.quantity} un.</span>
+              </p>
+            </div>
+
+            <form onSubmit={handleConfirmRemoval} className="space-y-4 overflow-y-auto pr-1 flex-1">
+              {/* Cantidad a retirar */}
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Cantidad a Retirar *
+                  </label>
+                  <span className="text-[11px] text-slate-400 font-medium">Máximo: {itemToRemove.quantity}</span>
+                </div>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="number"
+                    min="1"
+                    max={itemToRemove.quantity}
+                    required
+                    value={removeQty === 0 ? '' : removeQty}
+                    onFocus={(e) => e.target.select()}
+                    onChange={(e) => {
+                      const val = e.target.value === '' ? 0 : Number(e.target.value)
+                      setRemoveQty(Math.min(val, itemToRemove.quantity))
+                    }}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm font-bold text-center"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setRemoveQty(1)}
+                    className="px-3 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl whitespace-nowrap hover:bg-slate-300 transition"
+                  >
+                    1 un.
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRemoveQty(itemToRemove.quantity)}
+                    className="px-3 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl whitespace-nowrap hover:bg-slate-300 transition"
+                  >
+                    Todo ({itemToRemove.quantity})
+                  </button>
+                </div>
+              </div>
+
+              {/* Destino / Motivo */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                  Destino o Motivo del Retiro *
+                </label>
+                <div className="grid grid-cols-1 gap-2.5">
+                  <label
+                    onClick={() => setReturnToWarehouse(true)}
+                    className={`p-3 rounded-xl border cursor-pointer transition flex items-start gap-3 ${
+                      returnToWarehouse
+                        ? 'bg-blue-50/80 dark:bg-blue-950/40 border-blue-500 dark:border-blue-500 ring-2 ring-blue-500/20'
+                        : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="returnOption"
+                      checked={returnToWarehouse}
+                      onChange={() => setReturnToWarehouse(true)}
+                      className="mt-0.5 text-blue-600 focus:ring-blue-500"
+                    />
+                    <div>
+                      <p className="font-bold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <span>🟢</span> Devolver a Bodega Central
+                      </p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        El stock ({removeQty} un.) volverá al inventario general de la Bodega.
+                      </p>
+                    </div>
+                  </label>
+
+                  <label
+                    onClick={() => setReturnToWarehouse(false)}
+                    className={`p-3 rounded-xl border cursor-pointer transition flex items-start gap-3 ${
+                      !returnToWarehouse
+                        ? 'bg-rose-50/80 dark:bg-rose-950/40 border-rose-500 dark:border-rose-500 ring-2 ring-rose-500/20'
+                        : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="returnOption"
+                      checked={!returnToWarehouse}
+                      onChange={() => setReturnToWarehouse(false)}
+                      className="mt-0.5 text-rose-600 focus:ring-rose-500"
+                    />
+                    <div>
+                      <p className="font-bold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <span>🔴</span> Material Ocupado / Consumido en Terreno (Eliminar de todo)
+                      </p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        El material se ocupó en terreno. Se retira de la camioneta y <strong>NO</strong> vuelve a la Bodega.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Observaciones */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Observaciones / Notas (Opcional)
+                </label>
+                <textarea
+                  rows={2}
+                  value={removeNotes}
+                  onChange={(e) => setRemoveNotes(e.target.value)}
+                  placeholder="Ej: Utilizado en OT #1234, Devolución por excedente, etc."
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRemoveModal(false)}
+                  className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingRemove}
+                  className={`flex-1 py-2.5 text-white font-bold rounded-xl text-xs transition shadow-md ${
+                    returnToWarehouse
+                      ? 'bg-blue-600 hover:bg-blue-500'
+                      : 'bg-rose-600 hover:bg-rose-500'
+                  }`}
+                >
+                  {isSubmittingRemove
+                    ? 'Procesando...'
+                    : returnToWarehouse
+                    ? `Confirmar Devolución (${removeQty})`
+                    : `Confirmar Consumo (${removeQty})`}
+                </button>
+              </div>
             </form>
           </div>
         </div>
