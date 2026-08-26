@@ -129,11 +129,30 @@ export class QuotationsService implements OnModuleInit {
     }
   }
 
-  async create(userId: string, dto: CreateQuotationDto) {
-    const count = await this.prisma.quotationRequest.count();
+  private async generateNextCode(): Promise<string> {
     const year = new Date().getFullYear();
-    const code = `COMPRA-${year}-${String(count + 1).padStart(4, '0')}`;
+    const prefix = `COMPRA-${year}-`;
+    const quotations = await this.prisma.quotationRequest.findMany({
+      where: { code: { startsWith: prefix } },
+      select: { code: true },
+    });
 
+    let maxNum = 0;
+    for (const q of quotations) {
+      const parts = q.code.split('-');
+      if (parts.length >= 3) {
+        const num = parseInt(parts[2], 10);
+        if (!isNaN(num) && num > maxNum) {
+          maxNum = num;
+        }
+      }
+    }
+
+    const nextNum = maxNum + 1;
+    return `${prefix}${String(nextNum).padStart(4, '0')}`;
+  }
+
+  async create(userId: string, dto: CreateQuotationDto) {
     // Find a default warehouse manager (BODEGUERO) to assign if available
     const bodeguero = await this.prisma.user.findFirst({
       where: { role: 'BODEGUERO', isActive: true },
@@ -156,9 +175,18 @@ export class QuotationsService implements OnModuleInit {
       });
     }
 
-    const quotation = await this.prisma.quotationRequest.create({
-      data: {
-        code,
+    let quotation;
+    let attempts = 0;
+    const maxAttempts = 5;
+
+    while (attempts < maxAttempts) {
+      attempts++;
+      const code = await this.generateNextCode();
+
+      try {
+        quotation = await this.prisma.quotationRequest.create({
+          data: {
+            code,
         customCode: dto.customCode || null,
         destinationType: (dto.destinationType as any) || 'STOCK_BODEGA',
         deliveryType: (dto.deliveryType as any) || null,
@@ -194,14 +222,20 @@ export class QuotationsService implements OnModuleInit {
         requestedBy: {
           select: { id: true, name: true, email: true, role: true },
         },
-        assignedTo: {
-          select: { id: true, name: true, email: true, role: true },
-        },
         pickupWorker: {
           select: { id: true, name: true, email: true, role: true },
         },
       },
     });
+        break; // Successfully created
+      } catch (error: any) {
+        if (error.code === 'P2002' && attempts < maxAttempts) {
+          this.logger.warn(`Colisión de código de cotización detectada. Reintentando (${attempts}/${maxAttempts})...`);
+          continue;
+        }
+        throw error;
+      }
+    }
 
     // Notify Bodegueros via App & Email
     const bodegueros = await this.prisma.user.findMany({
@@ -212,7 +246,7 @@ export class QuotationsService implements OnModuleInit {
       await this.prisma.appNotification.create({
         data: {
           userId: b.id,
-          title: `🛍️ Nuevo Flujo de Compra (${code})`,
+          title: `🛍️ Nuevo Flujo de Compra (${quotation.code})`,
           message: `Se ha iniciado un flujo de compra para: "${dto.title}" (${quotation.projectName}).`,
           link: '/cotizaciones',
         },

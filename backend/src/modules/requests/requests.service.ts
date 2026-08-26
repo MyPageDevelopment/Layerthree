@@ -93,6 +93,29 @@ export class RequestsService implements OnModuleInit {
     return this.excelParserService.parseExcelBuffer(buffer, fileName);
   }
 
+  private async generateNextCode(): Promise<string> {
+    const year = new Date().getFullYear();
+    const prefix = `REQ-${year}-`;
+    const requests = await this.prisma.materialRequest.findMany({
+      where: { code: { startsWith: prefix } },
+      select: { code: true },
+    });
+
+    let maxNum = 0;
+    for (const req of requests) {
+      const parts = req.code.split('-');
+      if (parts.length >= 3) {
+        const num = parseInt(parts[2], 10);
+        if (!isNaN(num) && num > maxNum) {
+          maxNum = num;
+        }
+      }
+    }
+
+    const nextNum = maxNum + 1;
+    return `${prefix}${String(nextNum).padStart(3, '0')}`;
+  }
+
   async create(requestedById: string, dto: CreateRequestDto) {
     const hasItems = dto.items && dto.items.length > 0;
     if (!hasItems && !dto.attachmentUrl && !dto.notes) {
@@ -107,48 +130,63 @@ export class RequestsService implements OnModuleInit {
 
     const productMap = new Map(dbProducts.map((p) => [p.id, p]));
 
-    const count = await this.prisma.materialRequest.count();
-    const code = `REQ-${new Date().getFullYear()}-${String(count + 1).padStart(3, '0')}`;
+    let request;
+    let attempts = 0;
+    const maxAttempts = 5;
 
-    const request = await this.prisma.materialRequest.create({
-      data: {
-        code,
-        projectId: dto.projectId || null,
-        projectName: dto.projectName || 'Proyecto General',
-        requestedById,
-        notes: dto.notes || '',
-        attachmentUrl: dto.attachmentUrl || null,
-        attachmentName: dto.attachmentName || null,
-        status: 'PENDING',
-        items: {
-          create: itemsInput.map((i) => {
-            const prod = i.productId ? productMap.get(i.productId) : null;
-            const name = i.productName || prod?.name || 'Producto';
-            const sku = i.sku || prod?.sku || 'N/A';
-            const isUtp = name.toUpperCase().includes('UTP') || sku.toUpperCase().includes('UTP');
-            const unitMeasure = isUtp ? 'MTS' : (i.unitMeasure || prod?.unit || 'UN');
+    while (attempts < maxAttempts) {
+      attempts++;
+      const code = await this.generateNextCode();
 
-            return {
-              productId: i.productId || null,
-              productName: name,
-              sku,
-              requestedQuantity: i.quantity,
-              deliveredQuantity: 0,
-              unitMeasure,
-              isChecked: false,
-            };
-          }),
-        },
-      },
-      include: {
-        items: {
-          include: { product: true },
-        },
-        requestedBy: { select: { id: true, name: true, email: true, role: true } },
-        assignedTo: { select: { id: true, name: true, email: true, role: true } },
-        van: true,
-      },
-    });
+      try {
+        request = await this.prisma.materialRequest.create({
+          data: {
+            code,
+            projectId: dto.projectId || null,
+            projectName: dto.projectName || 'Proyecto General',
+            requestedById,
+            notes: dto.notes || '',
+            attachmentUrl: dto.attachmentUrl || null,
+            attachmentName: dto.attachmentName || null,
+            status: 'PENDING',
+            items: {
+              create: itemsInput.map((i) => {
+                const prod = i.productId ? productMap.get(i.productId) : null;
+                const name = i.productName || prod?.name || 'Producto';
+                const sku = i.sku || prod?.sku || 'N/A';
+                const isUtp = name.toUpperCase().includes('UTP') || sku.toUpperCase().includes('UTP');
+                const unitMeasure = isUtp ? 'MTS' : (i.unitMeasure || prod?.unit || 'UN');
+
+                return {
+                  productId: i.productId || null,
+                  productName: name,
+                  sku,
+                  requestedQuantity: i.quantity,
+                  deliveredQuantity: 0,
+                  unitMeasure,
+                  isChecked: false,
+                };
+              }),
+            },
+          },
+          include: {
+            items: {
+              include: { product: true },
+            },
+            requestedBy: { select: { id: true, name: true, email: true, role: true } },
+            assignedTo: { select: { id: true, name: true, email: true, role: true } },
+            van: true,
+          },
+        });
+        break; // Successfully created
+      } catch (error: any) {
+        if (error.code === 'P2002' && attempts < maxAttempts) {
+          this.logger.warn(`Colisión de código de solicitud de material detectada. Reintentando (${attempts}/${maxAttempts})...`);
+          continue;
+        }
+        throw error;
+      }
+    }
 
     // Notify all Bodegueros in App and via Email
     const targetUsers = await this.prisma.user.findMany({
@@ -164,7 +202,7 @@ export class RequestsService implements OnModuleInit {
       await this.prisma.appNotification.create({
         data: {
           userId: user.id,
-          title: `📦 Nueva Solicitud de Materiales (${code})`,
+          title: `📦 Nueva Solicitud de Materiales (${request.code})`,
           message: `El usuario ${request.requestedBy.name || request.requestedBy.email} ha enviado una solicitud (${itemCountText}) para el proyecto "${request.projectName}".`,
           link: `/solicitudes?highlight=${request.id}`,
         },
@@ -175,7 +213,7 @@ export class RequestsService implements OnModuleInit {
         this.mailService
           .sendMaterialRequestEmail(
             user.email,
-            code,
+            request.code,
             request.requestedBy.name || request.requestedBy.email,
             request.projectName || 'Proyecto General',
             itemsInput.length,
