@@ -22,7 +22,12 @@ export interface CreateRequestDto {
 }
 
 export interface DispatchItemDto {
-  itemId: string;
+  itemId?: string;
+  productId?: string;
+  productName?: string;
+  sku?: string;
+  unitMeasure?: string;
+  serialNumber?: string;
   isChecked: boolean;
   deliveredQuantity: number;
 }
@@ -33,6 +38,7 @@ export interface DispatchRequestDto {
   notes?: string;
   vanId?: string;
   items: DispatchItemDto[];
+  removedItemIds?: string[];
 }
 
 export interface SendSupplierQuoteDto {
@@ -271,15 +277,55 @@ export class RequestsService implements OnModuleInit {
       vanObj = await this.prisma.van.findUnique({ where: { id: dto.vanId } });
     }
 
+    // Handle item removals if specified
+    if (dto.removedItemIds && dto.removedItemIds.length > 0) {
+      await this.prisma.materialRequestItem.deleteMany({
+        where: {
+          id: { in: dto.removedItemIds },
+          materialRequestId: id,
+        },
+      });
+    }
+
+    // Process new items added directly during dispatch
+    for (const itemDto of dto.items) {
+      if (!itemDto.itemId && itemDto.productId) {
+        const prod = await this.prisma.product.findUnique({ where: { id: itemDto.productId } });
+        if (prod) {
+          const newItem = await this.prisma.materialRequestItem.create({
+            data: {
+              materialRequestId: id,
+              productId: prod.id,
+              productName: prod.name,
+              sku: prod.sku,
+              requestedQuantity: itemDto.deliveredQuantity || 1,
+              deliveredQuantity: itemDto.deliveredQuantity || 1,
+              unitMeasure: itemDto.unitMeasure || prod.unit || 'UN',
+              serialNumber: itemDto.serialNumber || prod.serialNumber || null,
+              isChecked: itemDto.isChecked,
+            },
+          });
+          itemDto.itemId = newItem.id;
+        }
+      }
+    }
+
+    // Refresh request items after additions/removals
+    const currentItems = await this.prisma.materialRequestItem.findMany({
+      where: { materialRequestId: id },
+      include: { product: true },
+    });
+
     // Pre-validate stock sufficiency for all checked items
     for (const itemDto of dto.items) {
       if (!itemDto.isChecked) continue;
-      const dbItem = request.items.find((i) => i.id === itemDto.itemId);
-      if (!dbItem || !dbItem.productId) continue;
+      const dbItem = currentItems.find((i) => i.id === itemDto.itemId);
+      const prodId = dbItem?.productId || itemDto.productId;
+      if (!prodId) continue;
 
-      const deliveredQty = itemDto.deliveredQuantity || dbItem.requestedQuantity;
+      const deliveredQty = itemDto.deliveredQuantity || (dbItem ? dbItem.requestedQuantity : 1);
       if (deliveredQty > 0) {
-        const prod = await this.prisma.product.findUnique({ where: { id: dbItem.productId } });
+        const prod = await this.prisma.product.findUnique({ where: { id: prodId } });
         if (prod && prod.stock < deliveredQty) {
           throw new BadRequestException(
             `Stock insuficiente en Bodega para "${prod.name}". Disponible: ${prod.stock}, Solicitado: ${deliveredQty}`,
@@ -290,7 +336,8 @@ export class RequestsService implements OnModuleInit {
 
     // Process items, update stock & assign to Van if vanId selected
     for (const itemDto of dto.items) {
-      const dbItem = request.items.find((i) => i.id === itemDto.itemId);
+      if (!itemDto.itemId) continue;
+      const dbItem = currentItems.find((i) => i.id === itemDto.itemId);
       if (!dbItem) continue;
 
       const deliveredQty = itemDto.isChecked ? itemDto.deliveredQuantity || dbItem.requestedQuantity : 0;
@@ -300,6 +347,7 @@ export class RequestsService implements OnModuleInit {
         data: {
           isChecked: itemDto.isChecked,
           deliveredQuantity: deliveredQty,
+          ...(itemDto.serialNumber ? { serialNumber: itemDto.serialNumber } : {}),
         },
       });
 
@@ -311,7 +359,7 @@ export class RequestsService implements OnModuleInit {
             projectId: request.projectId || null,
             type: 'EXIT',
             quantity: deliveredQty,
-            notes: `Despacho de Solicitud ${request.code} entregado a: ${dto.recipientName}${vanObj ? ` (Camioneta: ${vanObj.plate} - ${vanObj.name})` : ''}`,
+            notes: `Despacho de Solicitud ${request.code} entregado a: ${dto.recipientName}${vanObj ? ` (Camioneta: ${vanObj.plate} - ${vanObj.name})` : ''}${itemDto.serialNumber ? ` [Serie: ${itemDto.serialNumber}]` : ''}`,
             userId: bodegueroUserId,
           },
         });
@@ -321,6 +369,7 @@ export class RequestsService implements OnModuleInit {
           where: { id: dbItem.productId },
           data: {
             stock: { decrement: deliveredQty },
+            ...(itemDto.serialNumber && !dbItem.product?.serialNumber ? { serialNumber: itemDto.serialNumber } : {}),
           },
         });
 
@@ -339,6 +388,7 @@ export class RequestsService implements OnModuleInit {
               data: {
                 quantity: { increment: deliveredQty },
                 type: determineItemType(dbItem.product),
+                ...(itemDto.serialNumber ? { serialNumber: itemDto.serialNumber } : {}),
               },
             });
           } else {
@@ -353,6 +403,7 @@ export class RequestsService implements OnModuleInit {
                 quantity: deliveredQty,
                 minQuantity: 1,
                 assignedTo: vanObj.driver || dto.recipientName,
+                serialNumber: itemDto.serialNumber || dbItem.product.serialNumber || null,
               },
             });
           }

@@ -20,4 +20,28 @@ export class CreateVanDto {
   @IsString()
   @IsOptional()
   notes?: string;
+
+  @IsOptional()
+  mileage?: number;
+
+  @IsOptional()
+  lastOilChangeKm?: number;
+
+  @IsOptional()
+  nextOilChangeKm?: number;
+
+  @IsOptional()
+  lastOilChangeDate?: string;
+
+  @IsOptional()
+  lastTireChangeDate?: string;
+
+  @IsOptional()
+  technicalReviewDate?: string;
+
+  @IsOptional()
+  insuranceExpiryDate?: string;
+
+  @IsOptional()
+  permisoCirculacionDate?: string;
 }

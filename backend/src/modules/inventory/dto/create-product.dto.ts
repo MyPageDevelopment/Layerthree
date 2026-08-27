@@ -54,4 +54,8 @@ export class CreateProductDto {
   @IsOptional()
   @IsString()
   supplierCode?: string;
+
+  @IsOptional()
+  @IsString()
+  serialNumber?: string;
 }

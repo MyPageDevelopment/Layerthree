@@ -21,6 +21,7 @@ interface QuotationItem {
   supplier?: string
   itemNotes?: string
   linkUrl?: string
+  serialNumber?: string
 }
 
 interface PurchaseDocument {
@@ -107,8 +108,17 @@ export default function CotizacionesPage() {
   const [newAttachmentUrl, setNewAttachmentUrl] = useState('')
   const [newAttachmentName, setNewAttachmentName] = useState('')
   const [newItems, setNewItems] = useState<QuotationItem[]>([
-    { productName: '', quantity: 1, unitMeasure: 'UN', linkUrl: '', itemNotes: '' },
+    { productName: '', quantity: 1, unitMeasure: 'UN', linkUrl: '', itemNotes: '', serialNumber: '' },
   ])
+
+  // Modal Edit Quotation State
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [editQuotation, setEditQuotation] = useState<QuotationRequest | null>(null)
+  const [editTitle, setEditTitle] = useState('')
+  const [editCustomCode, setEditCustomCode] = useState('')
+  const [editProjectName, setEditProjectName] = useState('')
+  const [editNotes, setEditNotes] = useState('')
+  const [editItems, setEditItems] = useState<QuotationItem[]>([])
 
   // Detail Modal State
   const [selectedQuotation, setSelectedQuotation] = useState<QuotationRequest | null>(null)
@@ -181,12 +191,69 @@ export default function CotizacionesPage() {
   const handleAddItemRow = () => {
     setNewItems((prev) => [
       ...prev,
-      { productName: '', quantity: 1, unitMeasure: 'UN', linkUrl: '', itemNotes: '' },
+      { productName: '', quantity: 1, unitMeasure: 'UN', linkUrl: '', itemNotes: '', serialNumber: '' },
     ])
   }
 
   const handleRemoveItemRow = (index: number) => {
     setNewItems((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const handleOpenEditModal = (q: QuotationRequest) => {
+    setEditQuotation(q)
+    setEditTitle(q.title)
+    setEditCustomCode(q.customCode || '')
+    setEditProjectName(q.projectName || '')
+    setEditNotes(q.notes || '')
+    setEditItems(
+      q.items.map((i) => ({
+        id: i.id,
+        productName: i.productName,
+        productId: i.productId,
+        quantity: i.quantity,
+        unitMeasure: i.unitMeasure || 'UN',
+        estimatedUnitPrice: i.estimatedUnitPrice || 0,
+        supplier: i.supplier || '',
+        itemNotes: i.itemNotes || '',
+        linkUrl: i.linkUrl || '',
+        serialNumber: i.serialNumber || '',
+      }))
+    )
+    setShowEditModal(true)
+  }
+
+  const handleEditAddItemRow = () => {
+    setEditItems((prev) => [
+      ...prev,
+      { productName: '', quantity: 1, unitMeasure: 'UN', linkUrl: '', itemNotes: '', serialNumber: '' },
+    ])
+  }
+
+  const handleEditRemoveItemRow = (index: number) => {
+    setEditItems((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const handleSaveEditQuotation = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editQuotation) return
+    setIsActionLoading(true)
+    setActionLoadingText('Guardando cambios de la cotización...')
+    try {
+      await api.patch(`/quotations/${editQuotation.id}`, {
+        title: editTitle,
+        customCode: editCustomCode,
+        projectName: editProjectName,
+        notes: editNotes,
+        items: editItems,
+      })
+      showToast('Cotización actualizada correctamente', 'success', 'Éxito')
+      setShowEditModal(false)
+      fetchQuotations()
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Error al guardar cambios', 'error', 'Error')
+    } finally {
+      setIsActionLoading(false)
+    }
   }
 
   const handleCreateFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -690,19 +757,26 @@ export default function CotizacionesPage() {
                   <span className="text-slate-400 font-mono">
                     {new Date(q.createdAt).toLocaleDateString('es-CL')}
                   </span>
-                  <div className="flex gap-2">
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={() => handleOpenEditModal(q)}
+                      className="px-2.5 py-1.5 bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 font-bold rounded-xl transition border border-amber-300 dark:border-amber-800 text-xs flex items-center gap-1"
+                      title="Editar datos y materiales del flujo"
+                    >
+                      <span>✏️</span> Editar
+                    </button>
                     <button
                       onClick={() => setDeleteConfirmId(q.id)}
-                      className="px-2.5 py-1.5 bg-rose-100 hover:bg-rose-200 dark:bg-rose-950/80 text-rose-600 font-bold rounded-xl transition border border-rose-300 dark:border-rose-800 text-xs flex items-center gap-1"
+                      className="px-2 py-1.5 bg-rose-100 hover:bg-rose-200 dark:bg-rose-950/80 text-rose-600 font-bold rounded-xl transition border border-rose-300 dark:border-rose-800 text-xs flex items-center gap-1"
                       title="Eliminar flujo de compra"
                     >
-                      <span>🗑️</span> Eliminar
+                      <span>🗑️</span>
                     </button>
                     <button
                       onClick={() => setSelectedQuotation(q)}
-                      className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition shadow flex items-center gap-1"
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition shadow flex items-center gap-1 text-xs"
                     >
-                      <span>👁️</span> Abrir Flujo
+                      <span>👁️</span> Abrir
                     </button>
                   </div>
                 </div>
@@ -1359,6 +1433,207 @@ export default function CotizacionesPage() {
         onClose={() => setShowBulkDownloadModal(false)}
         quotations={quotations}
       />
+
+      {/* MODAL EDITAR COTIZACIÓN / FLUJO DE COMPRA */}
+      {showEditModal && editQuotation && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-4xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] my-auto flex flex-col">
+            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
+              <div>
+                <h3 className="text-lg font-bold flex items-center gap-2">
+                  <span>✏️</span> Editar Flujo de Compra / Cotización [{editQuotation.code}]
+                </h3>
+                <p className="text-xs text-slate-400">Modifica el título, proyecto, observaciones o detalles de materiales y números de serie.</p>
+              </div>
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white text-xl"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditQuotation} className="space-y-4 text-xs sm:text-sm overflow-y-auto pr-1 flex-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-semibold mb-1">Título de la Cotización / Compra *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold mb-1">Código Personalizado (Opcional)</label>
+                  <input
+                    type="text"
+                    value={editCustomCode}
+                    onChange={(e) => setEditCustomCode(e.target.value)}
+                    placeholder="Ej. COT-PROY-001"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold mb-1">Nombre del Proyecto / Destino</label>
+                <input
+                  type="text"
+                  value={editProjectName}
+                  onChange={(e) => setEditProjectName(e.target.value)}
+                  placeholder="Ej. Proyecto Red Corporativa"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl"
+                />
+              </div>
+
+              {/* Items List */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <label className="block font-semibold text-xs uppercase tracking-wider text-slate-500">
+                    📦 Lista de Materiales / Equipos ({editItems.length})
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleEditAddItemRow}
+                    className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+                  >
+                    + Agregar Otro Ítem
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  {editItems.map((item, idx) => (
+                    <div key={idx} className="p-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-xl space-y-2 text-xs">
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                        <div className="sm:col-span-4">
+                          <label className="block text-[10px] text-slate-400 font-semibold mb-0.5">Nombre / Descripción del Material</label>
+                          <input
+                            type="text"
+                            required
+                            value={item.productName}
+                            onChange={(e) => {
+                              const val = e.target.value
+                              setEditItems(prev => prev.map((it, i) => i === idx ? { ...it, productName: val } : it))
+                            }}
+                            placeholder="Nombre del producto..."
+                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg font-semibold"
+                          />
+                        </div>
+
+                        <div className="sm:col-span-3">
+                          <label className="block text-[10px] text-slate-400 font-semibold mb-0.5">N° de Serie (Opcional)</label>
+                          <input
+                            type="text"
+                            value={item.serialNumber || ''}
+                            onChange={(e) => {
+                              const val = e.target.value
+                              setEditItems(prev => prev.map((it, i) => i === idx ? { ...it, serialNumber: val } : it))
+                            }}
+                            placeholder="Ej: SN-994012"
+                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg font-mono"
+                          />
+                        </div>
+
+                        <div className="sm:col-span-2">
+                          <label className="block text-[10px] text-slate-400 font-semibold mb-0.5">Cantidad</label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={item.quantity}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value) || 1
+                              setEditItems(prev => prev.map((it, i) => i === idx ? { ...it, quantity: val } : it))
+                            }}
+                            className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-center font-bold"
+                          />
+                        </div>
+
+                        <div className="sm:col-span-2">
+                          <label className="block text-[10px] text-slate-400 font-semibold mb-0.5">Precio Est. ($)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={item.estimatedUnitPrice || 0}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value) || 0
+                              setEditItems(prev => prev.map((it, i) => i === idx ? { ...it, estimatedUnitPrice: val } : it))
+                            }}
+                            className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-right font-mono"
+                          />
+                        </div>
+
+                        <div className="sm:col-span-1 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleEditRemoveItemRow(idx)}
+                            className="text-red-500 hover:text-red-700 font-bold text-base p-1"
+                            title="Eliminar este ítem"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-slate-200 dark:border-slate-700/50">
+                        <input
+                          type="text"
+                          value={item.supplier || ''}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            setEditItems(prev => prev.map((it, i) => i === idx ? { ...it, supplier: val } : it))
+                          }}
+                          placeholder="Proveedor sugerido..."
+                          className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-[11px]"
+                        />
+                        <input
+                          type="text"
+                          value={item.itemNotes || ''}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            setEditItems(prev => prev.map((it, i) => i === idx ? { ...it, itemNotes: val } : it))
+                          }}
+                          placeholder="Notas adicionales o especificaciones..."
+                          className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-[11px]"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold mb-1">Observaciones Generales</label>
+                <textarea
+                  rows={2}
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  placeholder="Detalles sobre lugar de entrega o requerimientos del cliente..."
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(false)}
+                  className="px-4 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 rounded-xl font-medium"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-semibold shadow"
+                >
+                  Guardar Cambios
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       <LoadingOverlay isOpen={isActionLoading} message={actionLoadingText} />
     </div>

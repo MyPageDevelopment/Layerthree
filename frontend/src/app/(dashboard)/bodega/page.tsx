@@ -64,6 +64,7 @@ export default function BodegaPage() {
     unitCost: 0,
     listPrice: 0,
     supplierCode: '',
+    serialNumber: '',
   })
 
 
@@ -154,6 +155,7 @@ export default function BodegaPage() {
       unitCost: 0,
       listPrice: 0,
       supplierCode: '',
+      serialNumber: '',
     })
     setShowProductModal(true)
     fetchNextSku(defaultCat)
@@ -257,6 +259,7 @@ export default function BodegaPage() {
       unitCost: 0,
       listPrice: 0,
       supplierCode: '',
+      serialNumber: '',
     })
     setEditingProduct(null)
   }
@@ -787,6 +790,7 @@ export default function BodegaPage() {
                             unitCost: product.unitCost ?? product.unitPrice ?? 0,
                             listPrice: product.listPrice ?? 0,
                             supplierCode: product.supplierCode || '',
+                            serialNumber: product.serialNumber || '',
                           })
                           setShowProductModal(true)
                         }}
@@ -882,6 +886,7 @@ export default function BodegaPage() {
                                   unitCost: product.unitCost ?? product.unitPrice ?? 0,
                                   listPrice: product.listPrice ?? 0,
                                   supplierCode: product.supplierCode || '',
+                                  serialNumber: product.serialNumber || '',
                                 })
                                 setShowProductModal(true)
                               }}
@@ -1066,6 +1071,20 @@ export default function BodegaPage() {
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 flex justify-between items-center">
+                  <span>N° de Serie (Opcional para Equipos)</span>
+                  <span className="text-[10px] text-slate-400 font-normal">Identificador único</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.serialNumber || ''}
+                  onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })}
+                  placeholder="Ej: SN-9028471092"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs font-mono"
+                />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

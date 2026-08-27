@@ -159,6 +159,7 @@ model Product {
   totalCost   Float           @default(0)
   listPrice   Float           @default(0)
   supplierCode String?
+  serialNumber String?         @db.VarChar(255)
   isDeleted   Boolean         @default(false)
   deletedAt   DateTime?
   createdAt   DateTime        @default(now())
@@ -660,6 +661,7 @@ model MaterialRequestItem {
   deliveredQuantity Int             @default(0)
   unitMeasure       String?         @default("UN")
   isChecked         Boolean         @default(false)
+  serialNumber       String?         @db.VarChar(255)
   
   @@map("material_request_items")
 }
@@ -753,6 +755,7 @@ model QuotationItem {
   supplier           String?
   itemNotes          String?          @db.Text
   linkUrl            String?          @db.Text
+  serialNumber       String?          @db.VarChar(255)
 
   @@map("quotation_items")
 }
@@ -762,9 +765,17 @@ model Van {
   plate     String    @unique @db.VarChar(20)
   name      String    @db.VarChar(255)
   driver    String?   @db.VarChar(255)
-  status    String    @default("EN_TERRENO") @db.VarChar(50)
-  notes     String?   @db.Text
-  createdAt DateTime  @default(now())
+  status                 String    @default("EN_TERRENO") @db.VarChar(50)
+  notes                  String?   @db.Text
+  mileage                Int?      @default(0)
+  lastOilChangeKm        Int?
+  nextOilChangeKm        Int?
+  lastOilChangeDate      DateTime?
+  lastTireChangeDate     DateTime?
+  technicalReviewDate    DateTime?
+  insuranceExpiryDate    DateTime?
+  permisoCirculacionDate DateTime?
+  createdAt              DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   items     VanItem[]
   materialRequests MaterialRequest[]
@@ -784,8 +795,9 @@ model VanItem {
   type        String   @default("MATERIAL") @db.VarChar(50)
   quantity    Int      @default(0)
   minQuantity Int      @default(1)
-  assignedTo  String?  @db.VarChar(255)
-  createdAt   DateTime @default(now())
+  assignedTo   String?  @db.VarChar(255)
+  serialNumber String?  @db.VarChar(255)
+  createdAt    DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([vanId])

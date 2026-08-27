@@ -136,6 +136,14 @@ export class VansService {
         driver: dto.driver || null,
         status: dto.status || 'EN_TERRENO',
         notes: dto.notes || null,
+        mileage: dto.mileage !== undefined ? Number(dto.mileage) : 0,
+        lastOilChangeKm: dto.lastOilChangeKm !== undefined ? Number(dto.lastOilChangeKm) : null,
+        nextOilChangeKm: dto.nextOilChangeKm !== undefined ? Number(dto.nextOilChangeKm) : null,
+        lastOilChangeDate: dto.lastOilChangeDate ? new Date(dto.lastOilChangeDate) : null,
+        lastTireChangeDate: dto.lastTireChangeDate ? new Date(dto.lastTireChangeDate) : null,
+        technicalReviewDate: dto.technicalReviewDate ? new Date(dto.technicalReviewDate) : null,
+        insuranceExpiryDate: dto.insuranceExpiryDate ? new Date(dto.insuranceExpiryDate) : null,
+        permisoCirculacionDate: dto.permisoCirculacionDate ? new Date(dto.permisoCirculacionDate) : null,
       },
     });
   }
@@ -154,9 +162,19 @@ export class VansService {
       dto.plate = plateUpper;
     }
 
+    const updateData: any = { ...dto };
+    if (dto.mileage !== undefined) updateData.mileage = Number(dto.mileage);
+    if (dto.lastOilChangeKm !== undefined) updateData.lastOilChangeKm = dto.lastOilChangeKm ? Number(dto.lastOilChangeKm) : null;
+    if (dto.nextOilChangeKm !== undefined) updateData.nextOilChangeKm = dto.nextOilChangeKm ? Number(dto.nextOilChangeKm) : null;
+    if (dto.lastOilChangeDate !== undefined) updateData.lastOilChangeDate = dto.lastOilChangeDate ? new Date(dto.lastOilChangeDate) : null;
+    if (dto.lastTireChangeDate !== undefined) updateData.lastTireChangeDate = dto.lastTireChangeDate ? new Date(dto.lastTireChangeDate) : null;
+    if (dto.technicalReviewDate !== undefined) updateData.technicalReviewDate = dto.technicalReviewDate ? new Date(dto.technicalReviewDate) : null;
+    if (dto.insuranceExpiryDate !== undefined) updateData.insuranceExpiryDate = dto.insuranceExpiryDate ? new Date(dto.insuranceExpiryDate) : null;
+    if (dto.permisoCirculacionDate !== undefined) updateData.permisoCirculacionDate = dto.permisoCirculacionDate ? new Date(dto.permisoCirculacionDate) : null;
+
     return this.prisma.van.update({
       where: { id },
-      data: dto,
+      data: updateData,
     });
   }
 

@@ -127,6 +127,10 @@ export default function SolicitudesPage() {
 
   // Dispatch Modal State (For Bodeguero)
   const [dispatchRequest, setDispatchRequest] = useState<MaterialRequest | null>(null)
+  const [dispatchItemsList, setDispatchItemsList] = useState<any[]>([])
+  const [dispatchRemovedIds, setDispatchRemovedIds] = useState<string[]>([])
+  const [showAddProductToDispatch, setShowAddProductToDispatch] = useState(false)
+  const [dispatchAddSearch, setDispatchAddSearch] = useState('')
   const [recipientName, setRecipientName] = useState('')
   const [dispatchNotes, setDispatchNotes] = useState('')
   const [photoUrl, setPhotoUrl] = useState('')
@@ -134,7 +138,7 @@ export default function SolicitudesPage() {
   const [vans, setVans] = useState<any[]>([])
   const [systemUsers, setSystemUsers] = useState<any[]>([])
   const [selectedVanId, setSelectedVanId] = useState<string>('')
-  const [itemChecks, setItemChecks] = useState<Record<string, { isChecked: boolean; quantity: number }>>({})
+  const [itemChecks, setItemChecks] = useState<Record<string, { isChecked: boolean; quantity: number; serialNumber?: string }>>({})
 
   // Items Dropdown state for Desktop & Mobile
   const [openItemsDropdownId, setOpenItemsDropdownId] = useState<string | null>(null)
@@ -356,16 +360,57 @@ export default function SolicitudesPage() {
   // Handle Opening Dispatch Modal for Bodeguero
   const handleOpenDispatchModal = (req: MaterialRequest) => {
     setDispatchRequest(req)
+    setDispatchItemsList([...req.items])
+    setDispatchRemovedIds([])
+    setShowAddProductToDispatch(false)
+    setDispatchAddSearch('')
     setRecipientName('')
     setDispatchNotes('')
     setPhotoUrl('')
     setPhotoPreview('')
     setDispatchError('')
-    const initialChecks: Record<string, { isChecked: boolean; quantity: number }> = {}
+
+    const initialChecks: Record<string, { isChecked: boolean; quantity: number; serialNumber?: string }> = {}
     req.items.forEach(item => {
-      initialChecks[item.id] = { isChecked: true, quantity: item.requestedQuantity }
+      initialChecks[item.id] = {
+        isChecked: true,
+        quantity: item.requestedQuantity,
+        serialNumber: (item as any).serialNumber || '',
+      }
     })
     setItemChecks(initialChecks)
+  }
+
+  const handleAddProductToDispatchChecklist = (product: Product) => {
+    const tempId = `new-${product.id}-${Date.now()}`
+    const newItem = {
+      id: tempId,
+      productId: product.id,
+      productName: product.name,
+      sku: product.sku,
+      requestedQuantity: 1,
+      deliveredQuantity: 1,
+      unitMeasure: product.unit || 'UN',
+      product: product,
+    }
+    setDispatchItemsList(prev => [...prev, newItem])
+    setItemChecks(prev => ({
+      ...prev,
+      [tempId]: { isChecked: true, quantity: 1, serialNumber: product.serialNumber || '' },
+    }))
+    setShowAddProductToDispatch(false)
+  }
+
+  const handleRemoveItemFromDispatchChecklist = (itemId: string) => {
+    if (!itemId.startsWith('new-')) {
+      setDispatchRemovedIds(prev => [...prev, itemId])
+    }
+    setDispatchItemsList(prev => prev.filter(i => i.id !== itemId))
+    setItemChecks(prev => {
+      const copy = { ...prev }
+      delete copy[itemId]
+      return copy
+    })
   }
 
   const handleConfirmDispatch = async (e: React.FormEvent) => {
@@ -378,11 +423,19 @@ export default function SolicitudesPage() {
       return
     }
 
-    const itemsPayload = Object.entries(itemChecks).map(([itemId, val]) => ({
-      itemId,
-      isChecked: val.isChecked,
-      deliveredQuantity: val.quantity,
-    }))
+    const itemsPayload = Object.entries(itemChecks).map(([itemId, val]) => {
+      const itemObj = dispatchItemsList.find(i => i.id === itemId)
+      return {
+        itemId: itemId.startsWith('new-') ? undefined : itemId,
+        productId: itemObj?.productId || itemObj?.product?.id,
+        productName: itemObj?.productName || itemObj?.product?.name,
+        sku: itemObj?.sku || itemObj?.product?.sku,
+        unitMeasure: itemObj?.unitMeasure || itemObj?.product?.unit,
+        isChecked: val.isChecked,
+        deliveredQuantity: val.quantity,
+        serialNumber: val.serialNumber || undefined,
+      }
+    })
 
     setActionLoadingText('Procesando despacho y actualizando inventarios...')
     setIsActionLoading(true)
@@ -394,6 +447,7 @@ export default function SolicitudesPage() {
         vanId: selectedVanId || undefined,
         notes: dispatchNotes,
         items: itemsPayload,
+        removedItemIds: dispatchRemovedIds,
       })
 
       setDispatchRequest(null)
@@ -1259,46 +1313,130 @@ export default function SolicitudesPage() {
                 </div>
               )}
               <div>
-                <label className="block font-semibold mb-2">Checklist de Materiales a Retirar de Bodega</label>
-                <div className="space-y-2 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
-                  {dispatchRequest.items.map((item) => {
-                    const check = itemChecks[item.id] || { isChecked: true, quantity: item.requestedQuantity }
-                    return (
-                      <div key={item.id} className="flex items-center justify-between gap-3 text-xs border-b border-slate-200 dark:border-slate-700/50 pb-2 last:border-0 last:pb-0">
-                        <label className="flex items-center space-x-2 cursor-pointer flex-1">
-                          <input
-                            type="checkbox"
-                            checked={check.isChecked}
-                            onChange={(e) =>
-                              setItemChecks(prev => ({
-                                ...prev,
-                                [item.id]: { ...check, isChecked: e.target.checked },
-                              }))
-                            }
-                            className="rounded border-slate-300 dark:border-slate-700 text-emerald-600"
-                          />
-                          <span className="font-medium">{item.product?.name}</span>
-                        </label>
+                <div className="flex justify-between items-center mb-2">
+                  <label className="block font-semibold">Checklist de Materiales a Retirar de Bodega</label>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddProductToDispatch(prev => !prev)}
+                    className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                  >
+                    <span>+ Agregar Material Adicional</span>
+                  </button>
+                </div>
 
-                        <div className="flex items-center gap-1">
-                          <span className="text-slate-400">Cant:</span>
-                          <input
-                            type="number"
-                            min="1"
-                            max={item.requestedQuantity}
-                            value={check.quantity}
-                            onChange={(e) =>
-                              setItemChecks(prev => ({
-                                ...prev,
-                                [item.id]: { ...check, quantity: parseInt(e.target.value) || 1 },
-                              }))
-                            }
-                            className="w-16 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-center text-xs"
-                          />
+                {/* Add Product Search Dropdown */}
+                {showAddProductToDispatch && (
+                  <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl space-y-2 text-xs">
+                    <div className="flex justify-between items-center font-bold text-blue-800 dark:text-blue-300">
+                      <span>🔍 Seleccionar Material de Bodega para Agregar al Despacho</span>
+                      <button type="button" onClick={() => setShowAddProductToDispatch(false)} className="text-slate-400 hover:text-slate-600">✕</button>
+                    </div>
+                    <input
+                      type="text"
+                      value={dispatchAddSearch}
+                      onChange={(e) => setDispatchAddSearch(e.target.value)}
+                      placeholder="Buscar por nombre o SKU..."
+                      className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none"
+                    />
+                    <div className="max-h-36 overflow-y-auto space-y-1">
+                      {products
+                        .filter(p => p.name.toLowerCase().includes(dispatchAddSearch.toLowerCase()) || p.sku.toLowerCase().includes(dispatchAddSearch.toLowerCase()))
+                        .slice(0, 10)
+                        .map(p => (
+                          <div key={p.id} className="flex justify-between items-center p-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg">
+                            <div>
+                              <span className="font-semibold">{p.name}</span>
+                              <span className="text-[10px] text-slate-400 ml-2">SKU: {p.sku} | Stock: {p.stock}</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleAddProductToDispatchChecklist(p)}
+                              className="px-2.5 py-1 bg-emerald-600 text-white rounded font-bold text-[11px] hover:bg-emerald-500"
+                            >
+                              + Añadir
+                            </button>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-2 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800 max-h-60 overflow-y-auto">
+                  {dispatchItemsList.length === 0 ? (
+                    <p className="text-xs text-slate-400 text-center py-2">No hay materiales en el checklist</p>
+                  ) : (
+                    dispatchItemsList.map((item) => {
+                      const check = itemChecks[item.id] || { isChecked: true, quantity: item.requestedQuantity || 1, serialNumber: '' }
+                      const prodName = item.productName || item.product?.name || 'Material'
+                      const isEquipment = (item.product?.category === 'EQUIPOS') || prodName.toUpperCase().includes('SWITCH') || prodName.toUpperCase().includes('ROUTER')
+                      
+                      return (
+                        <div key={item.id} className="p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl space-y-1.5 text-xs">
+                          <div className="flex items-center justify-between gap-2">
+                            <label className="flex items-center space-x-2 cursor-pointer flex-1 min-w-0">
+                              <input
+                                type="checkbox"
+                                checked={check.isChecked}
+                                onChange={(e) =>
+                                  setItemChecks(prev => ({
+                                    ...prev,
+                                    [item.id]: { ...check, isChecked: e.target.checked },
+                                  }))
+                                }
+                                className="rounded border-slate-300 dark:border-slate-700 text-emerald-600 shrink-0"
+                              />
+                              <span className="font-semibold truncate">{prodName}</span>
+                              {item.sku && <span className="text-[10px] font-mono text-slate-400">({item.sku})</span>}
+                            </label>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              <div className="flex items-center gap-1">
+                                <span className="text-slate-400 text-[11px]">Cant:</span>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={check.quantity}
+                                  onChange={(e) =>
+                                    setItemChecks(prev => ({
+                                      ...prev,
+                                      [item.id]: { ...check, quantity: parseInt(e.target.value) || 1 },
+                                    }))
+                                  }
+                                  className="w-14 px-1.5 py-0.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-center text-xs font-bold"
+                                />
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveItemFromDispatchChecklist(item.id)}
+                                className="text-red-500 hover:text-red-700 p-1 font-bold"
+                                title="Quitar este material de la lista de entrega"
+                              >
+                                🗑️
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Optional Serial Number Input */}
+                          <div className="flex items-center gap-2 pl-6 pt-0.5">
+                            <span className="text-[10px] text-slate-400 whitespace-nowrap">N° Serie (Opcional):</span>
+                            <input
+                              type="text"
+                              value={check.serialNumber || ''}
+                              onChange={(e) =>
+                                setItemChecks(prev => ({
+                                  ...prev,
+                                  [item.id]: { ...check, serialNumber: e.target.value },
+                                }))
+                              }
+                              placeholder={isEquipment ? 'Ej. SN-882347102 (Recomendado para equipos)' : 'Opcional...'}
+                              className="w-full px-2 py-0.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-[11px] font-mono"
+                            />
+                          </div>
                         </div>
-                      </div>
-                    )
-                  })}
+                      )
+                    })
+                  )}
                 </div>
               </div>
 

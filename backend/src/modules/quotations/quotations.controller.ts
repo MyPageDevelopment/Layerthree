@@ -72,6 +72,16 @@ export class QuotationsController {
     return this.quotationsService.findOne(id);
   }
 
+  @Patch(':id')
+  @ApiOperation({ summary: 'Editar datos y lista de ítems de cotización' })
+  async updateFull(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() dto: any,
+  ) {
+    return this.quotationsService.updateFull(id, req.user, dto);
+  }
+
   @Patch(':id/quote')
   @Roles('BODEGUERO', 'SUPER_ADMIN', 'GERENTE')
   @ApiOperation({ summary: 'Ingresar precios y proveedores (Bodeguero / Admin)' })

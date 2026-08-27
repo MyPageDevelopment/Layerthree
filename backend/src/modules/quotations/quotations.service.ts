@@ -13,6 +13,7 @@ export interface CreateQuotationItemDto {
   supplier?: string;
   itemNotes?: string;
   linkUrl?: string;
+  serialNumber?: string;
 }
 
 export interface CreateQuotationDto {
@@ -31,11 +32,34 @@ export interface CreateQuotationDto {
   items?: CreateQuotationItemDto[];
 }
 
-export interface UpdateQuoteItemDto {
-  id: string;
-  estimatedUnitPrice: number;
+export interface EditQuotationItemDto {
+  id?: string;
+  productName: string;
+  productId?: string;
+  quantity: number;
+  unitMeasure?: string;
+  estimatedUnitPrice?: number;
   supplier?: string;
   itemNotes?: string;
+  linkUrl?: string;
+  serialNumber?: string;
+}
+
+export interface UpdateQuotationFullDto {
+  title?: string;
+  customCode?: string;
+  projectName?: string;
+  notes?: string;
+  items?: EditQuotationItemDto[];
+}
+
+export interface UpdateQuoteItemDto {
+  id: string;
+  estimatedUnitPrice?: number;
+  productName?: string;
+  supplier?: string;
+  itemNotes?: string;
+  serialNumber?: string;
 }
 
 export interface BodegueroQuoteResponseDto {
@@ -68,6 +92,7 @@ export interface ConfirmInvoiceItemDto {
   quantity: number;
   unitPrice?: number;
   unitMeasure?: string;
+  serialNumber?: string;
 }
 
 export interface ConfirmInvoiceReceiptDto {
@@ -610,6 +635,8 @@ export class QuotationsService implements OnModuleInit {
             estimatedUnitPrice: update.estimatedUnitPrice,
             supplier: update.supplier || null,
             itemNotes: update.itemNotes || null,
+            ...(update.productName ? { productName: update.productName } : {}),
+            ...(update.serialNumber !== undefined ? { serialNumber: update.serialNumber } : {}),
           },
         });
       }
@@ -635,6 +662,80 @@ export class QuotationsService implements OnModuleInit {
     });
 
     return updatedQuotation;
+  }
+
+  async updateFull(id: string, user: any, dto: UpdateQuotationFullDto) {
+    const quotation = await this.findOne(id);
+
+    const updateData: any = {};
+    if (dto.title !== undefined) updateData.title = dto.title;
+    if (dto.customCode !== undefined) updateData.customCode = dto.customCode || null;
+    if (dto.projectName !== undefined) updateData.projectName = dto.projectName || null;
+    if (dto.notes !== undefined) updateData.notes = dto.notes || null;
+
+    if (dto.items && Array.isArray(dto.items)) {
+      const keepItemIds = dto.items.map((i) => i.id).filter(Boolean) as string[];
+
+      await this.prisma.quotationItem.deleteMany({
+        where: {
+          quotationRequestId: id,
+          id: { notIn: keepItemIds },
+        },
+      });
+
+      for (const item of dto.items) {
+        if (item.id) {
+          await this.prisma.quotationItem.update({
+            where: { id: item.id },
+            data: {
+              productName: item.productName,
+              productId: item.productId || null,
+              quantity: item.quantity,
+              unitMeasure: item.unitMeasure || 'UN',
+              estimatedUnitPrice: item.estimatedUnitPrice !== undefined ? item.estimatedUnitPrice : 0,
+              supplier: item.supplier || null,
+              itemNotes: item.itemNotes || null,
+              linkUrl: item.linkUrl || null,
+              serialNumber: item.serialNumber || null,
+            },
+          });
+        } else {
+          await this.prisma.quotationItem.create({
+            data: {
+              quotationRequestId: id,
+              productName: item.productName,
+              productId: item.productId || null,
+              quantity: item.quantity,
+              unitMeasure: item.unitMeasure || 'UN',
+              estimatedUnitPrice: item.estimatedUnitPrice || 0,
+              supplier: item.supplier || null,
+              itemNotes: item.itemNotes || null,
+              linkUrl: item.linkUrl || null,
+              serialNumber: item.serialNumber || null,
+            },
+          });
+        }
+      }
+
+      const updatedItems = await this.prisma.quotationItem.findMany({
+        where: { quotationRequestId: id },
+      });
+      updateData.totalEstimatedCost = updatedItems.reduce(
+        (sum, item) => sum + (item.quantity || 0) * (item.estimatedUnitPrice || 0),
+        0,
+      );
+    }
+
+    return this.prisma.quotationRequest.update({
+      where: { id },
+      data: updateData,
+      include: {
+        items: { include: { product: true } },
+        requestedBy: true,
+        assignedTo: true,
+        pickupWorker: true,
+      },
+    });
   }
 
   async updateStatus(id: string, user: any, status: any) {

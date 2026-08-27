@@ -24,6 +24,14 @@ interface Van {
   driver?: string
   status: string
   notes?: string
+  mileage?: number
+  lastOilChangeKm?: number
+  nextOilChangeKm?: number
+  lastOilChangeDate?: string
+  lastTireChangeDate?: string
+  technicalReviewDate?: string
+  insuranceExpiryDate?: string
+  permisoCirculacionDate?: string
   totalItems?: number
   toolsCount?: number
   materialsCount?: number
@@ -86,6 +94,16 @@ export default function CamionetasPage() {
   const [status, setStatus] = useState('EN_TERRENO')
   const [notes, setNotes] = useState('')
 
+  // Vehicle Maintenance & Technical Info states
+  const [mileage, setMileage] = useState<number | ''>('')
+  const [lastOilChangeKm, setLastOilChangeKm] = useState<number | ''>('')
+  const [nextOilChangeKm, setNextOilChangeKm] = useState<number | ''>('')
+  const [lastOilChangeDate, setLastOilChangeDate] = useState('')
+  const [lastTireChangeDate, setLastTireChangeDate] = useState('')
+  const [technicalReviewDate, setTechnicalReviewDate] = useState('')
+  const [insuranceExpiryDate, setInsuranceExpiryDate] = useState('')
+  const [permisoCirculacionDate, setPermisoCirculacionDate] = useState('')
+
   // Manage items drawer / modal state
   const [selectedVan, setSelectedVan] = useState<Van | null>(null)
   const [itemSearchTerm, setItemSearchTerm] = useState('')
@@ -137,6 +155,15 @@ export default function CamionetasPage() {
     }
   }
 
+  const formatDateForInput = (d?: string | Date | null) => {
+    if (!d) return ''
+    try {
+      return new Date(d).toISOString().split('T')[0]
+    } catch {
+      return ''
+    }
+  }
+
   const handleOpenVanModal = (van?: Van) => {
     if (van) {
       setEditingVan(van)
@@ -145,6 +172,14 @@ export default function CamionetasPage() {
       setDriver(van.driver || '')
       setStatus(van.status)
       setNotes(van.notes || '')
+      setMileage(van.mileage ?? '')
+      setLastOilChangeKm(van.lastOilChangeKm ?? '')
+      setNextOilChangeKm(van.nextOilChangeKm ?? '')
+      setLastOilChangeDate(formatDateForInput(van.lastOilChangeDate))
+      setLastTireChangeDate(formatDateForInput(van.lastTireChangeDate))
+      setTechnicalReviewDate(formatDateForInput(van.technicalReviewDate))
+      setInsuranceExpiryDate(formatDateForInput(van.insuranceExpiryDate))
+      setPermisoCirculacionDate(formatDateForInput(van.permisoCirculacionDate))
     } else {
       setEditingVan(null)
       setPlate('')
@@ -152,6 +187,14 @@ export default function CamionetasPage() {
       setDriver('')
       setStatus('EN_TERRENO')
       setNotes('')
+      setMileage('')
+      setLastOilChangeKm('')
+      setNextOilChangeKm('')
+      setLastOilChangeDate('')
+      setLastTireChangeDate('')
+      setTechnicalReviewDate('')
+      setInsuranceExpiryDate('')
+      setPermisoCirculacionDate('')
     }
     setShowVanModal(true)
   }
@@ -159,10 +202,26 @@ export default function CamionetasPage() {
   const handleSaveVan = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
+      const payload = {
+        plate,
+        name,
+        driver: driver || undefined,
+        status,
+        notes: notes || undefined,
+        mileage: mileage !== '' ? Number(mileage) : undefined,
+        lastOilChangeKm: lastOilChangeKm !== '' ? Number(lastOilChangeKm) : undefined,
+        nextOilChangeKm: nextOilChangeKm !== '' ? Number(nextOilChangeKm) : undefined,
+        lastOilChangeDate: lastOilChangeDate || undefined,
+        lastTireChangeDate: lastTireChangeDate || undefined,
+        technicalReviewDate: technicalReviewDate || undefined,
+        insuranceExpiryDate: insuranceExpiryDate || undefined,
+        permisoCirculacionDate: permisoCirculacionDate || undefined,
+      }
+
       if (editingVan) {
-        await api.patch(`/vans/${editingVan.id}`, { plate, name, driver, status, notes })
+        await api.patch(`/vans/${editingVan.id}`, payload)
       } else {
-        await api.post('/vans', { plate, name, driver, status, notes })
+        await api.post('/vans', payload)
       }
       setShowVanModal(false)
       fetchVans()
@@ -451,7 +510,44 @@ export default function CamionetasPage() {
                     {van.notes && <p className="text-slate-400 italic text-[11px]">"{van.notes}"</p>}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 pt-2 text-center text-xs">
+                  {/* Ficha Vehicular y Mantenimiento */}
+                  <div className="p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800/80 space-y-1 text-[11px]">
+                    <div className="flex justify-between items-center text-slate-500 font-semibold border-b border-slate-200/50 dark:border-slate-700/50 pb-1 mb-1">
+                      <span>🛠️ Ficha del Vehículo</span>
+                      <span className="font-mono text-slate-800 dark:text-slate-200 font-bold">
+                        {van.mileage ? `${van.mileage.toLocaleString('es-CL')} KM` : 'KM s/r'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-1 text-[10px]">
+                      <p>
+                        <span className="text-slate-400">📋 Rev. Técnica:</span>{' '}
+                        <span className="font-semibold text-slate-700 dark:text-slate-300">
+                          {van.technicalReviewDate ? new Date(van.technicalReviewDate).toLocaleDateString('es-CL') : 's/r'}
+                        </span>
+                      </p>
+                      <p>
+                        <span className="text-slate-400">🛢️ Próx Aceite:</span>{' '}
+                        <span className="font-semibold text-slate-700 dark:text-slate-300">
+                          {van.nextOilChangeKm ? `${van.nextOilChangeKm.toLocaleString('es-CL')} KM` : 's/r'}
+                        </span>
+                      </p>
+                      <p>
+                        <span className="text-slate-400">📑 Permiso/SOAP:</span>{' '}
+                        <span className="font-semibold text-slate-700 dark:text-slate-300">
+                          {van.permisoCirculacionDate ? new Date(van.permisoCirculacionDate).toLocaleDateString('es-CL') : 's/r'}
+                        </span>
+                      </p>
+                      <p>
+                        <span className="text-slate-400">🛞 Neumáticos:</span>{' '}
+                        <span className="font-semibold text-slate-700 dark:text-slate-300">
+                          {van.lastTireChangeDate ? new Date(van.lastTireChangeDate).toLocaleDateString('es-CL') : 's/r'}
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 pt-1 text-center text-xs">
                     <div className="bg-slate-50 dark:bg-slate-800/50 p-2 rounded-xl border border-slate-100 dark:border-slate-800">
                       <span className="block text-slate-400 font-semibold text-[10px]">HERRAMIENTAS</span>
                       <span className="font-bold text-indigo-600 dark:text-indigo-400 text-base">
@@ -482,87 +578,190 @@ export default function CamionetasPage() {
       {/* Modal Crear / Editar Camioneta */}
       {showVanModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] my-auto flex flex-col">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] my-auto flex flex-col">
             <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
               <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                {editingVan ? 'Editar Camioneta' : 'Registrar Nueva Camioneta'}
+                {editingVan ? 'Editar Camioneta y Mantenimiento' : 'Registrar Nueva Camioneta'}
               </h3>
               <button onClick={() => setShowVanModal(false)} className="text-slate-400 hover:text-white text-xl">
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleSaveVan} className="space-y-4 overflow-y-auto pr-1 flex-1">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Patente (Ej: AB-123-CD) *
+            <form onSubmit={handleSaveVan} className="space-y-4 overflow-y-auto pr-1 flex-1 text-xs sm:text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Patente (Ej: AB-123-CD) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={plate}
+                    onChange={(e) => setPlate(e.target.value)}
+                    placeholder="Patente del vehículo"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white uppercase font-mono font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Nombre / Alias *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Ej: Camioneta 1 - Redes"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Conductor Responsable
+                  </label>
+                  <input
+                    type="text"
+                    value={driver}
+                    onChange={(e) => setDriver(e.target.value)}
+                    placeholder="Nombre del técnico"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Estado</label>
+                  <select
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
+                  >
+                    <option value="EN_TERRENO">EN TERRENO</option>
+                    <option value="DISPONIBLE">DISPONIBLE EN BASE</option>
+                    <option value="MANTENCION">EN MANTENCIÓN</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* MANTENIMIENTO Y FICHA DE VEHÍCULO */}
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
+                <label className="block font-bold text-xs uppercase tracking-wider text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
+                  <span>🛠️</span> Ficha de Mantenimiento y Documentación
                 </label>
-                <input
-                  type="text"
-                  required
-                  value={plate}
-                  onChange={(e) => setPlate(e.target.value)}
-                  placeholder="Patente del vehículo"
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm uppercase font-mono"
-                />
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Kilometraje (KM)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={mileage}
+                      onChange={(e) => setMileage(e.target.value === '' ? '' : Number(e.target.value))}
+                      placeholder="Ej. 145000"
+                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">KM Último Aceite</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={lastOilChangeKm}
+                      onChange={(e) => setLastOilChangeKm(e.target.value === '' ? '' : Number(e.target.value))}
+                      placeholder="Ej. 140000"
+                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">KM Próx. Aceite</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={nextOilChangeKm}
+                      onChange={(e) => setNextOilChangeKm(e.target.value === '' ? '' : Number(e.target.value))}
+                      placeholder="Ej. 150000"
+                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Fecha Últ. Cambio Aceite</label>
+                    <input
+                      type="date"
+                      value={lastOilChangeDate}
+                      onChange={(e) => setLastOilChangeDate(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Fecha Cambio Neumáticos</label>
+                    <input
+                      type="date"
+                      value={lastTireChangeDate}
+                      onChange={(e) => setLastTireChangeDate(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Venc. Rev. Técnica</label>
+                    <input
+                      type="date"
+                      value={technicalReviewDate}
+                      onChange={(e) => setTechnicalReviewDate(e.target.value)}
+                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Venc. Seguro SOAP</label>
+                    <input
+                      type="date"
+                      value={insuranceExpiryDate}
+                      onChange={(e) => setInsuranceExpiryDate(e.target.value)}
+                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Venc. Perm. Circulación</label>
+                    <input
+                      type="date"
+                      value={permisoCirculacionDate}
+                      onChange={(e) => setPermisoCirculacionDate(e.target.value)}
+                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Nombre / Alias (Ej: Camioneta 1 - Redes) *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Nombre o modelo de la camioneta"
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Conductor / Responsable habitual
-                </label>
-                <input
-                  type="text"
-                  value={driver}
-                  onChange={(e) => setDriver(e.target.value)}
-                  placeholder="Nombre del técnico responsable"
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Estado</label>
-                <select
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm"
-                >
-                  <option value="EN_TERRENO">EN TERRENO</option>
-                  <option value="DISPONIBLE">DISPONIBLE EN BASE</option>
-                  <option value="MANTENCION">EN MANTENCIÓN</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Notas / Obs.</label>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Notas / Observaciones</label>
                 <textarea
                   rows={2}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Observaciones adicionales..."
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm"
+                  placeholder="Observaciones adicionales sobre estado del vehículo..."
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
                 />
               </div>
 
               <button
                 type="submit"
-                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-sm transition"
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-sm transition shadow"
               >
-                Guardar Camioneta
+                Guardar Camioneta y Ficha
               </button>
             </form>
           </div>

@@ -32,8 +32,45 @@ export interface Product {
   totalCost?: number
   listPrice?: number
   supplierCode?: string
+  serialNumber?: string
   createdAt: string
   updatedAt: string
+}
+
+export interface VanItem {
+  id: string
+  vanId: string
+  productId?: string
+  product?: Product
+  name: string
+  sku?: string
+  category: string
+  type: string
+  quantity: number
+  minQuantity: number
+  assignedTo?: string
+  serialNumber?: string
+}
+
+export interface Van {
+  id: string
+  plate: string
+  name: string
+  driver?: string
+  status: string
+  notes?: string
+  mileage?: number
+  lastOilChangeKm?: number
+  nextOilChangeKm?: number
+  lastOilChangeDate?: string
+  lastTireChangeDate?: string
+  technicalReviewDate?: string
+  insuranceExpiryDate?: string
+  permisoCirculacionDate?: string
+  totalItems?: number
+  toolsCount?: number
+  materialsCount?: number
+  items?: VanItem[]
 }
 
 export interface Movement {
