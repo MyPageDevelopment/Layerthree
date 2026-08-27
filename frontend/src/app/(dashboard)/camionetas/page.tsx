@@ -157,11 +157,119 @@ export default function CamionetasPage() {
 
   const formatDateForInput = (d?: string | Date | null) => {
     if (!d) return ''
+    if (typeof d === 'string') {
+      const clean = d.split('T')[0]
+      if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean
+    }
     try {
-      return new Date(d).toISOString().split('T')[0]
+      const dt = new Date(d)
+      if (isNaN(dt.getTime())) return ''
+      const year = dt.getUTCFullYear()
+      const month = String(dt.getUTCMonth() + 1).padStart(2, '0')
+      const day = String(dt.getUTCDate()).padStart(2, '0')
+      return `${year}-${month}-${day}`
     } catch {
       return ''
     }
+  }
+
+  const formatDateDisplay = (dateStr?: string | null) => {
+    if (!dateStr) return 's/r'
+    const clean = dateStr.split('T')[0]
+    const parts = clean.split('-')
+    if (parts.length === 3 && parts[0].length === 4) {
+      const [y, m, d] = parts
+      return `${d}/${m}/${y}`
+    }
+    return clean
+  }
+
+  const parseDateForPayload = (dateStr: string): string | undefined => {
+    if (!dateStr || !dateStr.trim()) return undefined
+    const s = dateStr.trim()
+    if (/^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}$/.test(s)) {
+      const [d, m, y] = s.split(/[\/-]/)
+      return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      return s
+    }
+    return s || undefined
+  }
+
+  const getVanAlerts = (van: Van) => {
+    const alerts: { type: 'EXPIRED' | 'WARNING'; title: string; detail: string; field: string }[] = []
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+
+    const checkDateDoc = (dateStr: string | undefined, label: string, field: string) => {
+      if (!dateStr) return
+      const clean = dateStr.split('T')[0]
+      const parts = clean.split('-').map(Number)
+      if (parts.length !== 3 || isNaN(parts[0]) || isNaN(parts[1]) || isNaN(parts[2])) return
+      const [y, m, d] = parts
+
+      const expDate = new Date(y, m - 1, d)
+      expDate.setHours(0, 0, 0, 0)
+
+      const diffTime = expDate.getTime() - today.getTime()
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+      const formattedDate = `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`
+
+      if (diffDays < 0) {
+        alerts.push({
+          type: 'EXPIRED',
+          title: `🔴 Vencido: ${label}`,
+          detail: `Venció el ${formattedDate} (${Math.abs(diffDays)} ${Math.abs(diffDays) === 1 ? 'día' : 'días'} atrás)`,
+          field,
+        })
+      } else if (diffDays === 0) {
+        alerts.push({
+          type: 'EXPIRED',
+          title: `🚨 Vence HOY: ${label}`,
+          detail: `Fecha de vencimiento: ${formattedDate}`,
+          field,
+        })
+      } else if (diffDays <= 30) {
+        alerts.push({
+          type: 'WARNING',
+          title: `⚠️ Por vencer: ${label}`,
+          detail: `Vence en ${diffDays} ${diffDays === 1 ? 'día' : 'días'} (${formattedDate})`,
+          field,
+        })
+      }
+    }
+
+    checkDateDoc(van.technicalReviewDate, 'Rev. Técnica', 'technicalReviewDate')
+    checkDateDoc(van.insuranceExpiryDate, 'Seguro SOAP', 'insuranceExpiryDate')
+    checkDateDoc(van.permisoCirculacionDate, 'Permiso de Circulación', 'permisoCirculacionDate')
+
+    if (
+      van.mileage !== undefined &&
+      van.mileage !== null &&
+      van.nextOilChangeKm !== undefined &&
+      van.nextOilChangeKm !== null &&
+      van.nextOilChangeKm > 0
+    ) {
+      const diffKm = van.nextOilChangeKm - van.mileage
+      if (diffKm <= 0) {
+        alerts.push({
+          type: 'EXPIRED',
+          title: '🔴 Vencido: Cambio de Aceite',
+          detail: `Excedido por ${Math.abs(diffKm).toLocaleString('es-CL')} KM (${van.mileage.toLocaleString('es-CL')} / ${van.nextOilChangeKm.toLocaleString('es-CL')} KM)`,
+          field: 'nextOilChangeKm',
+        })
+      } else if (diffKm <= 1000) {
+        alerts.push({
+          type: 'WARNING',
+          title: '⚠️ Por vencer: Cambio de Aceite',
+          detail: `Faltan ${diffKm.toLocaleString('es-CL')} KM (${van.mileage.toLocaleString('es-CL')} / ${van.nextOilChangeKm.toLocaleString('es-CL')} KM)`,
+          field: 'nextOilChangeKm',
+        })
+      }
+    }
+
+    return alerts
   }
 
   const handleOpenVanModal = (van?: Van) => {
@@ -211,11 +319,11 @@ export default function CamionetasPage() {
         mileage: mileage !== '' ? Number(mileage) : undefined,
         lastOilChangeKm: lastOilChangeKm !== '' ? Number(lastOilChangeKm) : undefined,
         nextOilChangeKm: nextOilChangeKm !== '' ? Number(nextOilChangeKm) : undefined,
-        lastOilChangeDate: lastOilChangeDate || undefined,
-        lastTireChangeDate: lastTireChangeDate || undefined,
-        technicalReviewDate: technicalReviewDate || undefined,
-        insuranceExpiryDate: insuranceExpiryDate || undefined,
-        permisoCirculacionDate: permisoCirculacionDate || undefined,
+        lastOilChangeDate: parseDateForPayload(lastOilChangeDate),
+        lastTireChangeDate: parseDateForPayload(lastTireChangeDate),
+        technicalReviewDate: parseDateForPayload(technicalReviewDate),
+        insuranceExpiryDate: parseDateForPayload(insuranceExpiryDate),
+        permisoCirculacionDate: parseDateForPayload(permisoCirculacionDate),
       }
 
       if (editingVan) {
@@ -349,13 +457,21 @@ export default function CamionetasPage() {
       v.name.toLowerCase().includes(query) ||
       (v.driver && v.driver.toLowerCase().includes(query)) ||
       activeItems.some((i) => i.name.toLowerCase().includes(query) || (i.sku && i.sku.toLowerCase().includes(query)))
-    const matchesStatus = filterStatus === 'TODOS' || v.status === filterStatus
+    
+    const alerts = getVanAlerts(v)
+    const matchesStatus =
+      filterStatus === 'TODOS'
+        ? true
+        : filterStatus === 'CON_ALERTAS'
+        ? alerts.length > 0
+        : v.status === filterStatus
     return matchesSearch && matchesStatus
   })
 
   // Summary Metrics
   const totalVans = vans.length
   const activeVans = vans.filter((v) => v.status === 'EN_TERRENO').length
+  const alertVans = vans.filter((v) => getVanAlerts(v).length > 0).length
   const totalTools = vans.reduce((sum, v) => sum + (v.toolsCount || 0), 0)
   const totalMaterials = vans.reduce((sum, v) => sum + (v.materialsCount || 0), 0)
 
@@ -380,44 +496,67 @@ export default function CamionetasPage() {
       </div>
 
       {/* Metric Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 sm:gap-4">
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm flex items-center space-x-3">
-          <div className="w-12 h-12 rounded-xl bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center text-2xl font-bold">
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center text-xl sm:text-2xl font-bold shrink-0">
             🛻
           </div>
           <div>
-            <p className="text-xs font-semibold text-slate-400 uppercase">Total Vehículos</p>
-            <p className="text-2xl font-extrabold text-slate-900 dark:text-white">{totalVans}</p>
+            <p className="text-[11px] font-semibold text-slate-400 uppercase">Total Vehículos</p>
+            <p className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">{totalVans}</p>
           </div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm flex items-center space-x-3">
-          <div className="w-12 h-12 rounded-xl bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-2xl font-bold">
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-xl sm:text-2xl font-bold shrink-0">
             🟢
           </div>
           <div>
-            <p className="text-xs font-semibold text-slate-400 uppercase">En Terreno</p>
-            <p className="text-2xl font-extrabold text-slate-900 dark:text-white">{activeVans}</p>
+            <p className="text-[11px] font-semibold text-slate-400 uppercase">En Terreno</p>
+            <p className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">{activeVans}</p>
           </div>
         </div>
 
+        <button
+          onClick={() => setFilterStatus(filterStatus === 'CON_ALERTAS' ? 'TODOS' : 'CON_ALERTAS')}
+          className={`text-left border rounded-2xl p-4 shadow-sm flex items-center space-x-3 transition cursor-pointer ${
+            filterStatus === 'CON_ALERTAS'
+              ? 'bg-amber-500/10 border-amber-500/50 ring-2 ring-amber-500/30'
+              : alertVans > 0
+              ? 'bg-rose-500/5 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/50 hover:bg-rose-500/10'
+              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+          }`}
+        >
+          <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center text-xl sm:text-2xl font-bold shrink-0 ${
+            alertVans > 0 ? 'bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-400 animate-pulse' : 'bg-slate-100 dark:bg-slate-800 text-slate-400'
+          }`}>
+            ⚠️
+          </div>
+          <div>
+            <p className="text-[11px] font-semibold text-slate-400 uppercase">Con Alertas</p>
+            <p className={`text-xl sm:text-2xl font-extrabold ${alertVans > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>
+              {alertVans}
+            </p>
+          </div>
+        </button>
+
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm flex items-center space-x-3">
-          <div className="w-12 h-12 rounded-xl bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center text-2xl font-bold">
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center text-xl sm:text-2xl font-bold shrink-0">
             🛠️
           </div>
           <div>
-            <p className="text-xs font-semibold text-slate-400 uppercase">Total Herramientas</p>
-            <p className="text-2xl font-extrabold text-slate-900 dark:text-white">{totalTools}</p>
+            <p className="text-[11px] font-semibold text-slate-400 uppercase">Herramientas</p>
+            <p className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">{totalTools}</p>
           </div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm flex items-center space-x-3">
-          <div className="w-12 h-12 rounded-xl bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400 flex items-center justify-center text-2xl font-bold">
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400 flex items-center justify-center text-xl sm:text-2xl font-bold shrink-0">
             📦
           </div>
           <div>
-            <p className="text-xs font-semibold text-slate-400 uppercase">Materiales Cargados</p>
-            <p className="text-2xl font-extrabold text-slate-900 dark:text-white">{totalMaterials}</p>
+            <p className="text-[11px] font-semibold text-slate-400 uppercase">Materiales</p>
+            <p className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">{totalMaterials}</p>
           </div>
         </div>
       </div>
@@ -433,13 +572,14 @@ export default function CamionetasPage() {
             className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
-        <div className="w-full sm:w-48">
+        <div className="w-full sm:w-56">
           <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
             className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="TODOS">Todos los Estados</option>
+            <option value="CON_ALERTAS">⚠️ Solo con Alertas Críticas</option>
             <option value="EN_TERRENO">En Terreno</option>
             <option value="DISPONIBLE">Disponible en Base</option>
             <option value="MANTENCION">En Mantención</option>
@@ -453,8 +593,8 @@ export default function CamionetasPage() {
       ) : filteredVans.length === 0 ? (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-12 text-center space-y-3">
           <span className="text-4xl block">🛻</span>
-          <p className="text-lg font-bold text-slate-800 dark:text-slate-200">No hay camionetas registradas</p>
-          <p className="text-sm text-slate-500">Haz clic en "Registrar Camioneta" para dar de alta un vehículo en terreno.</p>
+          <p className="text-lg font-bold text-slate-800 dark:text-slate-200">No hay camionetas encontradas</p>
+          <p className="text-sm text-slate-500">Prueba ajustando los filtros o el término de búsqueda.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -466,10 +606,19 @@ export default function CamionetasPage() {
                 ? 'bg-blue-500/10 text-blue-500 border-blue-500/20'
                 : 'bg-amber-500/10 text-amber-500 border-amber-500/20'
 
+            const alerts = getVanAlerts(van)
+            const hasExpired = alerts.some((a) => a.type === 'EXPIRED')
+
             return (
               <div
                 key={van.id}
-                className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm hover:shadow-md transition space-y-4 flex flex-col justify-between"
+                className={`bg-white dark:bg-slate-900 border rounded-2xl p-5 shadow-sm hover:shadow-md transition space-y-4 flex flex-col justify-between ${
+                  hasExpired
+                    ? 'border-rose-300 dark:border-rose-900/60 ring-1 ring-rose-500/20'
+                    : alerts.length > 0
+                    ? 'border-amber-300 dark:border-amber-900/60'
+                    : 'border-slate-200 dark:border-slate-800'
+                }`}
               >
                 <div className="space-y-3">
                   <div className="flex justify-between items-start gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
@@ -502,6 +651,27 @@ export default function CamionetasPage() {
                     </div>
                   </div>
 
+                  {/* Banner de Alertas Críticas de Vencimiento */}
+                  {alerts.length > 0 && (
+                    <div className={`p-2.5 rounded-xl border text-xs space-y-1 ${
+                      hasExpired
+                        ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/60 text-rose-800 dark:text-rose-200'
+                        : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/60 text-amber-800 dark:text-amber-200'
+                    }`}>
+                      <p className="font-bold flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
+                        <span>{hasExpired ? '🚨 Alerta de Vencimiento Crítico' : '⚠️ Alerta de Próximo Vencimiento'}</span>
+                      </p>
+                      <ul className="space-y-1 pl-1 text-[11px]">
+                        {alerts.map((alt, idx) => (
+                          <li key={idx} className="flex flex-col">
+                            <span className="font-bold">{alt.title}</span>
+                            <span className="text-[10.5px] opacity-90 pl-2">{alt.detail}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
                   <div className="space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
                     <p className="flex items-center gap-1.5">
                       <span className="font-semibold text-slate-400">👤 Conductor:</span>
@@ -511,7 +681,7 @@ export default function CamionetasPage() {
                   </div>
 
                   {/* Ficha Vehicular y Mantenimiento */}
-                  <div className="p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800/80 space-y-1 text-[11px]">
+                  <div className="p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800/80 space-y-1.5 text-[11px]">
                     <div className="flex justify-between items-center text-slate-500 font-semibold border-b border-slate-200/50 dark:border-slate-700/50 pb-1 mb-1">
                       <span>🛠️ Ficha del Vehículo</span>
                       <span className="font-mono text-slate-800 dark:text-slate-200 font-bold">
@@ -519,31 +689,53 @@ export default function CamionetasPage() {
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-1 text-[10px]">
-                      <p>
-                        <span className="text-slate-400">📋 Rev. Técnica:</span>{' '}
-                        <span className="font-semibold text-slate-700 dark:text-slate-300">
-                          {van.technicalReviewDate ? new Date(van.technicalReviewDate).toLocaleDateString('es-CL') : 's/r'}
+                    <div className="space-y-1 text-[10.5px]">
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">📋 Rev. Técnica:</span>
+                        <span className={`font-semibold ${
+                          alerts.some((a) => a.field === 'technicalReviewDate')
+                            ? 'text-rose-600 dark:text-rose-400 font-bold'
+                            : 'text-slate-700 dark:text-slate-300'
+                        }`}>
+                          {formatDateDisplay(van.technicalReviewDate)}
                         </span>
-                      </p>
-                      <p>
-                        <span className="text-slate-400">🛢️ Próx Aceite:</span>{' '}
-                        <span className="font-semibold text-slate-700 dark:text-slate-300">
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">🛡️ Seguro SOAP:</span>
+                        <span className={`font-semibold ${
+                          alerts.some((a) => a.field === 'insuranceExpiryDate')
+                            ? 'text-rose-600 dark:text-rose-400 font-bold'
+                            : 'text-slate-700 dark:text-slate-300'
+                        }`}>
+                          {formatDateDisplay(van.insuranceExpiryDate)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">📑 Perm. Circulación:</span>
+                        <span className={`font-semibold ${
+                          alerts.some((a) => a.field === 'permisoCirculacionDate')
+                            ? 'text-rose-600 dark:text-rose-400 font-bold'
+                            : 'text-slate-700 dark:text-slate-300'
+                        }`}>
+                          {formatDateDisplay(van.permisoCirculacionDate)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">🛢️ Próx. Aceite:</span>
+                        <span className={`font-semibold ${
+                          alerts.some((a) => a.field === 'nextOilChangeKm')
+                            ? 'text-rose-600 dark:text-rose-400 font-bold'
+                            : 'text-slate-700 dark:text-slate-300'
+                        }`}>
                           {van.nextOilChangeKm ? `${van.nextOilChangeKm.toLocaleString('es-CL')} KM` : 's/r'}
                         </span>
-                      </p>
-                      <p>
-                        <span className="text-slate-400">📑 Permiso/SOAP:</span>{' '}
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">🛞 Últ. Neumáticos:</span>
                         <span className="font-semibold text-slate-700 dark:text-slate-300">
-                          {van.permisoCirculacionDate ? new Date(van.permisoCirculacionDate).toLocaleDateString('es-CL') : 's/r'}
+                          {formatDateDisplay(van.lastTireChangeDate)}
                         </span>
-                      </p>
-                      <p>
-                        <span className="text-slate-400">🛞 Neumáticos:</span>{' '}
-                        <span className="font-semibold text-slate-700 dark:text-slate-300">
-                          {van.lastTireChangeDate ? new Date(van.lastTireChangeDate).toLocaleDateString('es-CL') : 's/r'}
-                        </span>
-                      </p>
+                      </div>
                     </div>
                   </div>
 
@@ -696,6 +888,8 @@ export default function CamionetasPage() {
                     <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Fecha Últ. Cambio Aceite</label>
                     <input
                       type="date"
+                      min="2000-01-01"
+                      max="2100-12-31"
                       value={lastOilChangeDate}
                       onChange={(e) => setLastOilChangeDate(e.target.value)}
                       className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
@@ -706,6 +900,8 @@ export default function CamionetasPage() {
                     <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Fecha Cambio Neumáticos</label>
                     <input
                       type="date"
+                      min="2000-01-01"
+                      max="2100-12-31"
                       value={lastTireChangeDate}
                       onChange={(e) => setLastTireChangeDate(e.target.value)}
                       className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
@@ -718,6 +914,8 @@ export default function CamionetasPage() {
                     <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Venc. Rev. Técnica</label>
                     <input
                       type="date"
+                      min="2000-01-01"
+                      max="2100-12-31"
                       value={technicalReviewDate}
                       onChange={(e) => setTechnicalReviewDate(e.target.value)}
                       className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
@@ -728,6 +926,8 @@ export default function CamionetasPage() {
                     <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Venc. Seguro SOAP</label>
                     <input
                       type="date"
+                      min="2000-01-01"
+                      max="2100-12-31"
                       value={insuranceExpiryDate}
                       onChange={(e) => setInsuranceExpiryDate(e.target.value)}
                       className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
@@ -738,6 +938,8 @@ export default function CamionetasPage() {
                     <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Venc. Perm. Circulación</label>
                     <input
                       type="date"
+                      min="2000-01-01"
+                      max="2100-12-31"
                       value={permisoCirculacionDate}
                       onChange={(e) => setPermisoCirculacionDate(e.target.value)}
                       className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
