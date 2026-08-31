@@ -2,6 +2,38 @@ import { Injectable, NotFoundException, ConflictException, BadRequestException }
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateVanDto } from './dto/create-van.dto';
 import { AddVanItemDto } from './dto/add-van-item.dto';
+import { CreateVanMaintenanceDto } from './dto/create-van-maintenance.dto';
+
+export function parseDateToNoon(dateInput?: string | Date | null): Date | null {
+  if (!dateInput) return null;
+  if (dateInput instanceof Date) {
+    if (isNaN(dateInput.getTime())) return null;
+    return dateInput;
+  }
+  const s = String(dateInput).trim();
+  if (!s) return null;
+
+  // DD/MM/YYYY or DD-MM-YYYY
+  if (/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/.test(s)) {
+    const match = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+    if (match) {
+      const [, d, m, y] = match;
+      return new Date(`${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}T12:00:00.000Z`);
+    }
+  }
+
+  // YYYY-MM-DD
+  if (/^(\d{4})-(\d{2})-(\d{2})/.test(s)) {
+    const match = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      const [, y, m, d] = match;
+      return new Date(`${y}-${m}-${d}T12:00:00.000Z`);
+    }
+  }
+
+  const dt = new Date(s);
+  return isNaN(dt.getTime()) ? null : dt;
+}
 
 export function determineItemType(
   product?: { category?: string | null; subcategory?: string | null; name?: string | null } | null,
@@ -61,6 +93,9 @@ export class VansService {
           where: { quantity: { gt: 0 } },
           include: { product: true },
         },
+        maintenances: {
+          orderBy: { date: 'desc' },
+        },
       },
     });
 
@@ -79,12 +114,17 @@ export class VansService {
       const totalItems = activeItems.reduce((sum, item) => sum + item.quantity, 0);
       const toolsCount = activeItems.filter((i) => i.type === 'HERRAMIENTA').length;
       const materialsCount = activeItems.filter((i) => i.type === 'MATERIAL').length;
+      const totalMaintenanceCost = (v.maintenances || []).reduce((sum, m) => sum + (m.cost || 0), 0);
+      const maintenancesCount = (v.maintenances || []).length;
+
       return {
         ...v,
         items: activeItems,
         totalItems,
         toolsCount,
         materialsCount,
+        totalMaintenanceCost,
+        maintenancesCount,
       };
     });
   }
@@ -97,6 +137,9 @@ export class VansService {
           where: { quantity: { gt: 0 } },
           include: { product: true },
           orderBy: { name: 'asc' },
+        },
+        maintenances: {
+          orderBy: { date: 'desc' },
         },
       },
     });
@@ -114,9 +157,14 @@ export class VansService {
       return i;
     });
 
+    const totalMaintenanceCost = (van.maintenances || []).reduce((sum, m) => sum + (m.cost || 0), 0);
+    const maintenancesCount = (van.maintenances || []).length;
+
     return {
       ...van,
       items,
+      totalMaintenanceCost,
+      maintenancesCount,
     };
   }
 
@@ -139,11 +187,11 @@ export class VansService {
         mileage: dto.mileage !== undefined ? Number(dto.mileage) : 0,
         lastOilChangeKm: dto.lastOilChangeKm !== undefined ? Number(dto.lastOilChangeKm) : null,
         nextOilChangeKm: dto.nextOilChangeKm !== undefined ? Number(dto.nextOilChangeKm) : null,
-        lastOilChangeDate: dto.lastOilChangeDate ? new Date(dto.lastOilChangeDate) : null,
-        lastTireChangeDate: dto.lastTireChangeDate ? new Date(dto.lastTireChangeDate) : null,
-        technicalReviewDate: dto.technicalReviewDate ? new Date(dto.technicalReviewDate) : null,
-        insuranceExpiryDate: dto.insuranceExpiryDate ? new Date(dto.insuranceExpiryDate) : null,
-        permisoCirculacionDate: dto.permisoCirculacionDate ? new Date(dto.permisoCirculacionDate) : null,
+        lastOilChangeDate: parseDateToNoon(dto.lastOilChangeDate),
+        lastTireChangeDate: parseDateToNoon(dto.lastTireChangeDate),
+        technicalReviewDate: parseDateToNoon(dto.technicalReviewDate),
+        insuranceExpiryDate: parseDateToNoon(dto.insuranceExpiryDate),
+        permisoCirculacionDate: parseDateToNoon(dto.permisoCirculacionDate),
       },
     });
   }
@@ -166,11 +214,11 @@ export class VansService {
     if (dto.mileage !== undefined) updateData.mileage = Number(dto.mileage);
     if (dto.lastOilChangeKm !== undefined) updateData.lastOilChangeKm = dto.lastOilChangeKm ? Number(dto.lastOilChangeKm) : null;
     if (dto.nextOilChangeKm !== undefined) updateData.nextOilChangeKm = dto.nextOilChangeKm ? Number(dto.nextOilChangeKm) : null;
-    if (dto.lastOilChangeDate !== undefined) updateData.lastOilChangeDate = dto.lastOilChangeDate ? new Date(dto.lastOilChangeDate) : null;
-    if (dto.lastTireChangeDate !== undefined) updateData.lastTireChangeDate = dto.lastTireChangeDate ? new Date(dto.lastTireChangeDate) : null;
-    if (dto.technicalReviewDate !== undefined) updateData.technicalReviewDate = dto.technicalReviewDate ? new Date(dto.technicalReviewDate) : null;
-    if (dto.insuranceExpiryDate !== undefined) updateData.insuranceExpiryDate = dto.insuranceExpiryDate ? new Date(dto.insuranceExpiryDate) : null;
-    if (dto.permisoCirculacionDate !== undefined) updateData.permisoCirculacionDate = dto.permisoCirculacionDate ? new Date(dto.permisoCirculacionDate) : null;
+    if (dto.lastOilChangeDate !== undefined) updateData.lastOilChangeDate = parseDateToNoon(dto.lastOilChangeDate);
+    if (dto.lastTireChangeDate !== undefined) updateData.lastTireChangeDate = parseDateToNoon(dto.lastTireChangeDate);
+    if (dto.technicalReviewDate !== undefined) updateData.technicalReviewDate = parseDateToNoon(dto.technicalReviewDate);
+    if (dto.insuranceExpiryDate !== undefined) updateData.insuranceExpiryDate = parseDateToNoon(dto.insuranceExpiryDate);
+    if (dto.permisoCirculacionDate !== undefined) updateData.permisoCirculacionDate = parseDateToNoon(dto.permisoCirculacionDate);
 
     return this.prisma.van.update({
       where: { id },
@@ -184,6 +232,135 @@ export class VansService {
       where: { id },
     });
   }
+
+  /* ============================================================
+     HISTORIAL DE MANTENCIONES DE VEHÍCULOS
+     ============================================================ */
+
+  async getMaintenances(vanId: string) {
+    await this.findOne(vanId);
+    return this.prisma.vanMaintenance.findMany({
+      where: { vanId },
+      orderBy: { date: 'desc' },
+    });
+  }
+
+  async getAllMaintenancesSummary() {
+    const maintenances = await this.prisma.vanMaintenance.findMany({
+      orderBy: { date: 'desc' },
+      include: {
+        van: {
+          select: { id: true, plate: true, name: true, driver: true, status: true },
+        },
+      },
+    });
+
+    const totalCost = maintenances.reduce((sum, m) => sum + (m.cost || 0), 0);
+    const totalCount = maintenances.length;
+
+    return {
+      maintenances,
+      totalCost,
+      totalCount,
+    };
+  }
+
+  async addMaintenance(vanId: string, dto: CreateVanMaintenanceDto, user?: any) {
+    await this.findOne(vanId);
+    const parsedDate = parseDateToNoon(dto.date);
+    if (!parsedDate) {
+      throw new BadRequestException('Fecha de mantención inválida');
+    }
+
+    const userName = user ? (user.name || user.email) : undefined;
+    const maintenance = await this.prisma.vanMaintenance.create({
+      data: {
+        vanId,
+        date: parsedDate,
+        mileage: dto.mileage !== undefined && dto.mileage !== null ? Number(dto.mileage) : null,
+        type: dto.type || 'PREVENTIVA',
+        title: dto.title,
+        description: dto.description,
+        cost: dto.cost !== undefined && dto.cost !== null ? Number(dto.cost) : 0,
+        workshop: dto.workshop || null,
+        invoiceNumber: dto.invoiceNumber || null,
+        imageUrl: dto.imageUrl || null,
+        imageName: dto.imageName || null,
+        imagesJson: dto.imagesJson || null,
+        performedBy: dto.performedBy || userName || null,
+      },
+    });
+
+    // Automatically update van technical attributes if requested or based on type
+    const vanUpdateData: any = {};
+    if (dto.updateVanMileage && dto.mileage) {
+      vanUpdateData.mileage = Number(dto.mileage);
+    }
+    if (dto.updateVanOil || dto.type === 'CAMBIO_ACEITE') {
+      vanUpdateData.lastOilChangeDate = parsedDate;
+      if (dto.mileage) vanUpdateData.lastOilChangeKm = Number(dto.mileage);
+      if (dto.nextOilChangeKm) vanUpdateData.nextOilChangeKm = Number(dto.nextOilChangeKm);
+    }
+    if (dto.updateVanTires || dto.type === 'NEUMATICOS') {
+      vanUpdateData.lastTireChangeDate = parsedDate;
+    }
+
+    if (Object.keys(vanUpdateData).length > 0) {
+      await this.prisma.van.update({
+        where: { id: vanId },
+        data: vanUpdateData,
+      });
+    }
+
+    return maintenance;
+  }
+
+  async updateMaintenance(vanId: string, maintenanceId: string, dto: Partial<CreateVanMaintenanceDto>) {
+    const existing = await this.prisma.vanMaintenance.findFirst({
+      where: { id: maintenanceId, vanId },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Registro de mantención no encontrado para esta camioneta');
+    }
+
+    const data: any = { ...dto };
+    delete data.updateVanMileage;
+    delete data.updateVanOil;
+    delete data.updateVanTires;
+    delete data.nextOilChangeKm;
+
+    if (dto.date !== undefined) {
+      const parsedDate = parseDateToNoon(dto.date);
+      if (!parsedDate) throw new BadRequestException('Fecha de mantención inválida');
+      data.date = parsedDate;
+    }
+    if (dto.mileage !== undefined) data.mileage = dto.mileage !== null ? Number(dto.mileage) : null;
+    if (dto.cost !== undefined) data.cost = dto.cost !== null ? Number(dto.cost) : 0;
+
+    return this.prisma.vanMaintenance.update({
+      where: { id: maintenanceId },
+      data,
+    });
+  }
+
+  async deleteMaintenance(vanId: string, maintenanceId: string) {
+    const existing = await this.prisma.vanMaintenance.findFirst({
+      where: { id: maintenanceId, vanId },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Registro de mantención no encontrado para esta camioneta');
+    }
+
+    return this.prisma.vanMaintenance.delete({
+      where: { id: maintenanceId },
+    });
+  }
+
+  /* ============================================================
+     GESTIÓN DE HERRAMIENTAS Y MATERIALES (STOCK CAMIONETAS)
+     ============================================================ */
 
   async addItem(vanId: string, dto: AddVanItemDto, user?: any) {
     const van = await this.findOne(vanId);

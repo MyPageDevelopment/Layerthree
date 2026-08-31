@@ -778,6 +778,7 @@ model Van {
   createdAt              DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   items     VanItem[]
+  maintenances VanMaintenance[]
   materialRequests MaterialRequest[]
 
   @@map("vans")
@@ -803,5 +804,29 @@ model VanItem {
   @@index([vanId])
   @@index([productId])
   @@map("van_items")
+}
+
+model VanMaintenance {
+  id            String   @id @default(uuid())
+  vanId         String
+  van           Van      @relation(fields: [vanId], references: [id], onDelete: Cascade)
+  date          DateTime
+  mileage       Int?
+  type          String   @default("PREVENTIVA") @db.VarChar(50)
+  title         String   @db.VarChar(255)
+  description   String   @db.Text
+  cost          Float    @default(0)
+  workshop      String?  @db.VarChar(255)
+  invoiceNumber String?  @db.VarChar(100)
+  imageUrl      String?  @db.LongText
+  imageName     String?  @db.VarChar(255)
+  imagesJson    String?  @db.LongText
+  performedBy   String?  @db.VarChar(255)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([vanId])
+  @@index([date])
+  @@map("van_maintenances")
 }
 

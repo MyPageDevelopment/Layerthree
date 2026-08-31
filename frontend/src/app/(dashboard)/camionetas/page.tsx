@@ -17,6 +17,36 @@ interface VanItem {
   assignedTo?: string
 }
 
+interface AttachedImage {
+  id: string
+  name: string
+  url: string
+}
+
+interface VanMaintenance {
+  id: string
+  vanId: string
+  date: string
+  mileage?: number | null
+  type: string // PREVENTIVA, CORRECTIVA, CAMBIO_ACEITE, NEUMATICOS, FRENOS, BATERIA, SISTEMA_ELECTRICO, SUSPENSION, REVISION_TECNICA, OTRO
+  title: string
+  description: string
+  cost: number
+  workshop?: string | null
+  invoiceNumber?: string | null
+  imageUrl?: string | null
+  imageName?: string | null
+  imagesJson?: string | null
+  performedBy?: string | null
+  createdAt?: string
+  van?: {
+    id: string
+    plate: string
+    name: string
+    driver?: string | null
+  }
+}
+
 interface Van {
   id: string
   plate: string
@@ -36,6 +66,9 @@ interface Van {
   toolsCount?: number
   materialsCount?: number
   items?: VanItem[]
+  maintenances?: VanMaintenance[]
+  totalMaintenanceCost?: number
+  maintenancesCount?: number
 }
 
 interface Product {
@@ -46,6 +79,60 @@ interface Product {
   subcategory?: string
   stock: number
 }
+
+// Format date strictly as DD/MM/AAAA (Chilean format)
+function formatChileanDate(dateStr?: string | Date | null): string {
+  if (!dateStr) return 's/r'
+  const str = typeof dateStr === 'string' ? dateStr : dateStr.toISOString()
+  const clean = str.split('T')[0]
+  const parts = clean.split('-')
+  if (parts.length === 3) {
+    const [y, m, d] = parts
+    return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`
+  }
+  return clean
+}
+
+// Convert date string/Date to YYYY-MM-DD for <input type="date">
+function toDateInputValue(d?: string | Date | null): string {
+  if (!d) return ''
+  const str = typeof d === 'string' ? d : d.toISOString()
+  const clean = str.split('T')[0]
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean
+  return ''
+}
+
+// Normalize date to noon UTC ISO string to prevent timezone offset rollback
+function parseDateToNoonIso(dateStr?: string | null): string | undefined {
+  if (!dateStr || !dateStr.trim()) return undefined
+  const s = dateStr.trim()
+  // DD/MM/YYYY or DD-MM-YYYY
+  if (/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/.test(s)) {
+    const match = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/)
+    if (match) {
+      const [, d, m, y] = match
+      return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}T12:00:00.000Z`
+    }
+  }
+  // YYYY-MM-DD
+  if (/^(\d{4})-(\d{2})-(\d{2})$/.test(s)) {
+    return `${s}T12:00:00.000Z`
+  }
+  return s
+}
+
+const MAINTENANCE_TYPES = [
+  { value: 'PREVENTIVA', label: '🔧 Mantención Preventiva', color: 'bg-blue-500/10 text-blue-500 border-blue-500/20' },
+  { value: 'CORRECTIVA', label: '🛠️ Mantención Correctiva / Reparación', color: 'bg-rose-500/10 text-rose-500 border-rose-500/20' },
+  { value: 'CAMBIO_ACEITE', label: '🛢️ Cambio de Aceite y Filtros', color: 'bg-amber-500/10 text-amber-500 border-amber-500/20' },
+  { value: 'NEUMATICOS', label: '🛞 Cambio o Reparación de Neumáticos', color: 'bg-purple-500/10 text-purple-500 border-purple-500/20' },
+  { value: 'FRENOS', label: '🛑 Frenos (Pastillas / Discos)', color: 'bg-red-500/10 text-red-500 border-red-500/20' },
+  { value: 'BATERIA', label: '🔋 Batería y Sistema de Carga', color: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' },
+  { value: 'SISTEMA_ELECTRICO', label: '⚡ Sistema Eléctrico y Luces', color: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20' },
+  { value: 'SUSPENSION', label: '⚙️ Suspensión y Dirección', color: 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20' },
+  { value: 'REVISION_TECNICA', label: '📋 Revisión Técnica / Certificación', color: 'bg-teal-500/10 text-teal-500 border-teal-500/20' },
+  { value: 'OTRO', label: '📦 Otro Servicio', color: 'bg-slate-500/10 text-slate-500 border-slate-500/20' },
+]
 
 function determineItemType(prod?: Product | null): 'HERRAMIENTA' | 'MATERIAL' {
   if (!prod) return 'MATERIAL'
@@ -85,7 +172,10 @@ export default function CamionetasPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [filterStatus, setFilterStatus] = useState<string>('TODOS')
 
-  // Modals state
+  // Top Tabs
+  const [activeMainTab, setActiveMainTab] = useState<'STOCK' | 'MANTENCIONES'>('STOCK')
+
+  // Modals state - Van Edit/Create
   const [showVanModal, setShowVanModal] = useState(false)
   const [editingVan, setEditingVan] = useState<Van | null>(null)
   const [plate, setPlate] = useState('')
@@ -94,7 +184,7 @@ export default function CamionetasPage() {
   const [status, setStatus] = useState('EN_TERRENO')
   const [notes, setNotes] = useState('')
 
-  // Vehicle Maintenance & Technical Info states
+  // Vehicle Maintenance & Technical Info states (Ficha)
   const [mileage, setMileage] = useState<number | ''>('')
   const [lastOilChangeKm, setLastOilChangeKm] = useState<number | ''>('')
   const [nextOilChangeKm, setNextOilChangeKm] = useState<number | ''>('')
@@ -124,6 +214,34 @@ export default function CamionetasPage() {
   const [returnToWarehouse, setReturnToWarehouse] = useState<boolean>(true)
   const [removeNotes, setRemoveNotes] = useState<string>('')
   const [isSubmittingRemove, setIsSubmittingRemove] = useState<boolean>(false)
+
+  // Maintenance Management State
+  const [selectedVanForMaintenance, setSelectedVanForMaintenance] = useState<Van | null>(null)
+  const [vanMaintenances, setVanMaintenances] = useState<VanMaintenance[]>([])
+  const [loadingMaintenances, setLoadingMaintenances] = useState(false)
+  const [maintenanceFilterType, setMaintenanceFilterType] = useState<string>('TODOS')
+
+  // Create / Edit Maintenance Modal
+  const [showMaintenanceModal, setShowMaintenanceModal] = useState(false)
+  const [editingMaintenance, setEditingMaintenance] = useState<VanMaintenance | null>(null)
+  const [maintVanId, setMaintVanId] = useState<string>('')
+  const [maintDate, setMaintDate] = useState<string>(toDateInputValue(new Date()))
+  const [maintType, setMaintType] = useState<string>('PREVENTIVA')
+  const [maintTitle, setMaintTitle] = useState<string>('')
+  const [maintDescription, setMaintDescription] = useState<string>('')
+  const [maintCost, setMaintCost] = useState<number | ''>('')
+  const [maintMileage, setMaintMileage] = useState<number | ''>('')
+  const [maintWorkshop, setMaintWorkshop] = useState<string>('')
+  const [maintInvoiceNumber, setMaintInvoiceNumber] = useState<string>('')
+  const [maintImages, setMaintImages] = useState<AttachedImage[]>([])
+  const [maintUpdateMileage, setMaintUpdateMileage] = useState<boolean>(true)
+  const [maintUpdateOil, setMaintUpdateOil] = useState<boolean>(false)
+  const [maintUpdateTires, setMaintUpdateTires] = useState<boolean>(false)
+  const [maintNextOilKm, setMaintNextOilKm] = useState<number | ''>('')
+  const [isSavingMaintenance, setIsSavingMaintenance] = useState(false)
+
+  // Image Zoom Modal
+  const [zoomedImage, setZoomedImage] = useState<{ url: string; title: string } | null>(null)
 
   useEffect(() => {
     fetchVans()
@@ -155,46 +273,37 @@ export default function CamionetasPage() {
     }
   }
 
-  const formatDateForInput = (d?: string | Date | null) => {
-    if (!d) return ''
-    if (typeof d === 'string') {
-      const clean = d.split('T')[0]
-      if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean
-    }
+  // Load Maintenances for a Van
+  const handleOpenMaintenancePanel = async (van: Van) => {
+    setSelectedVanForMaintenance(van)
+    setMaintenanceFilterType('TODOS')
     try {
-      const dt = new Date(d)
-      if (isNaN(dt.getTime())) return ''
-      const year = dt.getUTCFullYear()
-      const month = String(dt.getUTCMonth() + 1).padStart(2, '0')
-      const day = String(dt.getUTCDate()).padStart(2, '0')
-      return `${year}-${month}-${day}`
-    } catch {
-      return ''
+      setLoadingMaintenances(true)
+      const res = await api.get(`/vans/${van.id}/maintenances`)
+      if (Array.isArray(res.data)) {
+        setVanMaintenances(res.data)
+      }
+    } catch (err) {
+      console.error('Error al cargar mantenciones:', err)
+    } finally {
+      setLoadingMaintenances(false)
     }
   }
 
-  const formatDateDisplay = (dateStr?: string | null) => {
-    if (!dateStr) return 's/r'
-    const clean = dateStr.split('T')[0]
-    const parts = clean.split('-')
-    if (parts.length === 3 && parts[0].length === 4) {
-      const [y, m, d] = parts
-      return `${d}/${m}/${y}`
+  const refreshSelectedVanMaintenances = async (vanId: string) => {
+    try {
+      setLoadingMaintenances(true)
+      const res = await api.get(`/vans/${vanId}/maintenances`)
+      if (Array.isArray(res.data)) {
+        setVanMaintenances(res.data)
+      }
+      // Also refresh the van list to update badges and totals
+      fetchVans()
+    } catch (err) {
+      console.error('Error al refrescar mantenciones:', err)
+    } finally {
+      setLoadingMaintenances(false)
     }
-    return clean
-  }
-
-  const parseDateForPayload = (dateStr: string): string | undefined => {
-    if (!dateStr || !dateStr.trim()) return undefined
-    const s = dateStr.trim()
-    if (/^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}$/.test(s)) {
-      const [d, m, y] = s.split(/[\/-]/)
-      return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
-    }
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-      return s
-    }
-    return s || undefined
   }
 
   const getVanAlerts = (van: Van) => {
@@ -283,11 +392,11 @@ export default function CamionetasPage() {
       setMileage(van.mileage ?? '')
       setLastOilChangeKm(van.lastOilChangeKm ?? '')
       setNextOilChangeKm(van.nextOilChangeKm ?? '')
-      setLastOilChangeDate(formatDateForInput(van.lastOilChangeDate))
-      setLastTireChangeDate(formatDateForInput(van.lastTireChangeDate))
-      setTechnicalReviewDate(formatDateForInput(van.technicalReviewDate))
-      setInsuranceExpiryDate(formatDateForInput(van.insuranceExpiryDate))
-      setPermisoCirculacionDate(formatDateForInput(van.permisoCirculacionDate))
+      setLastOilChangeDate(toDateInputValue(van.lastOilChangeDate))
+      setLastTireChangeDate(toDateInputValue(van.lastTireChangeDate))
+      setTechnicalReviewDate(toDateInputValue(van.technicalReviewDate))
+      setInsuranceExpiryDate(toDateInputValue(van.insuranceExpiryDate))
+      setPermisoCirculacionDate(toDateInputValue(van.permisoCirculacionDate))
     } else {
       setEditingVan(null)
       setPlate('')
@@ -319,11 +428,11 @@ export default function CamionetasPage() {
         mileage: mileage !== '' ? Number(mileage) : undefined,
         lastOilChangeKm: lastOilChangeKm !== '' ? Number(lastOilChangeKm) : undefined,
         nextOilChangeKm: nextOilChangeKm !== '' ? Number(nextOilChangeKm) : undefined,
-        lastOilChangeDate: parseDateForPayload(lastOilChangeDate),
-        lastTireChangeDate: parseDateForPayload(lastTireChangeDate),
-        technicalReviewDate: parseDateForPayload(technicalReviewDate),
-        insuranceExpiryDate: parseDateForPayload(insuranceExpiryDate),
-        permisoCirculacionDate: parseDateForPayload(permisoCirculacionDate),
+        lastOilChangeDate: parseDateToNoonIso(lastOilChangeDate),
+        lastTireChangeDate: parseDateToNoonIso(lastTireChangeDate),
+        technicalReviewDate: parseDateToNoonIso(technicalReviewDate),
+        insuranceExpiryDate: parseDateToNoonIso(insuranceExpiryDate),
+        permisoCirculacionDate: parseDateToNoonIso(permisoCirculacionDate),
       }
 
       if (editingVan) {
@@ -348,6 +457,7 @@ export default function CamionetasPage() {
     }
   }
 
+  // Manage Items
   const handleOpenManageItems = async (van: Van) => {
     try {
       setItemSearchTerm('')
@@ -359,16 +469,17 @@ export default function CamionetasPage() {
     }
   }
 
-  const handleSelectProduct = (prodId: string) => {
-    setItemProductId(prodId)
-    const prod = products.find((p) => p.id === prodId)
-    if (prod) {
-      setItemName(prod.name)
-      setItemSku(prod.sku)
-      setItemCategory(prod.category)
-      setItemType(determineItemType(prod))
-      setDeductFromWarehouse(true)
+  const handleSelectProduct = (prod: any) => {
+    if (!prod) {
+      setItemProductId('')
+      return
     }
+    setItemProductId(prod.id)
+    setItemName(prod.name)
+    setItemSku(prod.sku)
+    setItemCategory(prod.category || 'EQUIPOS')
+    setItemType(determineItemType(prod))
+    setDeductFromWarehouse(true)
   }
 
   const handleAddItem = async (e: React.FormEvent) => {
@@ -390,7 +501,6 @@ export default function CamionetasPage() {
       setItemSku('')
       setItemQuantity(1)
       setDeductFromWarehouse(true)
-      // Refresh selected van detail, full list and products list
       handleOpenManageItems(selectedVan)
       fetchVans()
       fetchProducts()
@@ -437,7 +547,6 @@ export default function CamionetasPage() {
       setShowRemoveModal(false)
       setItemToRemove(null)
       setRemoveNotes('')
-      // Refresh selected van detail and full lists
       handleOpenManageItems(selectedVan)
       fetchVans()
       fetchProducts()
@@ -448,6 +557,145 @@ export default function CamionetasPage() {
     }
   }
 
+  /* ============================================================
+     MANAGE VEHICLE MAINTENANCES & IMAGES
+     ============================================================ */
+
+  const handleOpenAddMaintenanceModal = (vanId?: string, existing?: VanMaintenance) => {
+    if (existing) {
+      setEditingMaintenance(existing)
+      setMaintVanId(existing.vanId)
+      setMaintDate(toDateInputValue(existing.date))
+      setMaintType(existing.type)
+      setMaintTitle(existing.title)
+      setMaintDescription(existing.description)
+      setMaintCost(existing.cost ?? '')
+      setMaintMileage(existing.mileage ?? '')
+      setMaintWorkshop(existing.workshop || '')
+      setMaintInvoiceNumber(existing.invoiceNumber || '')
+      setMaintUpdateMileage(false)
+      setMaintUpdateOil(existing.type === 'CAMBIO_ACEITE')
+      setMaintUpdateTires(existing.type === 'NEUMATICOS')
+      setMaintNextOilKm('')
+
+      // Parse existing images
+      let parsedImages: AttachedImage[] = []
+      if (existing.imagesJson) {
+        try {
+          parsedImages = JSON.parse(existing.imagesJson)
+        } catch {}
+      } else if (existing.imageUrl) {
+        parsedImages = [{ id: 'img-1', name: existing.imageName || 'Comprobante', url: existing.imageUrl }]
+      }
+      setMaintImages(parsedImages)
+    } else {
+      const targetVanId = vanId || selectedVanForMaintenance?.id || (vans.length > 0 ? vans[0].id : '')
+      const currentVan = vans.find((v) => v.id === targetVanId)
+      setEditingMaintenance(null)
+      setMaintVanId(targetVanId)
+      setMaintDate(toDateInputValue(new Date()))
+      setMaintType('PREVENTIVA')
+      setMaintTitle('')
+      setMaintDescription('')
+      setMaintCost('')
+      setMaintMileage(currentVan?.mileage ?? '')
+      setMaintWorkshop('')
+      setMaintInvoiceNumber('')
+      setMaintImages([])
+      setMaintUpdateMileage(true)
+      setMaintUpdateOil(false)
+      setMaintUpdateTires(false)
+      setMaintNextOilKm(currentVan?.mileage ? currentVan.mileage + 10000 : '')
+    }
+    setShowMaintenanceModal(true)
+  }
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+
+    Array.from(files).forEach((file) => {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const base64Url = event.target?.result as string
+        if (base64Url) {
+          const newImg: AttachedImage = {
+            id: `img-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+            name: file.name,
+            url: base64Url,
+          }
+          setMaintImages((prev) => [...prev, newImg])
+        }
+      }
+      reader.readAsDataURL(file)
+    })
+    e.target.value = ''
+  }
+
+  const handleRemoveImage = (imgId: string) => {
+    setMaintImages((prev) => prev.filter((img) => img.id !== imgId))
+  }
+
+  const handleSaveMaintenance = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!maintVanId) {
+      alert('Debes seleccionar una camioneta')
+      return
+    }
+
+    try {
+      setIsSavingMaintenance(true)
+      const payload: any = {
+        date: parseDateToNoonIso(maintDate),
+        type: maintType,
+        title: maintTitle,
+        description: maintDescription,
+        cost: maintCost !== '' ? Number(maintCost) : 0,
+        mileage: maintMileage !== '' ? Number(maintMileage) : undefined,
+        workshop: maintWorkshop || undefined,
+        invoiceNumber: maintInvoiceNumber || undefined,
+        imagesJson: maintImages.length > 0 ? JSON.stringify(maintImages) : undefined,
+        imageUrl: maintImages.length > 0 ? maintImages[0].url : undefined,
+        imageName: maintImages.length > 0 ? maintImages[0].name : undefined,
+        updateVanMileage: maintUpdateMileage,
+        updateVanOil: maintUpdateOil || maintType === 'CAMBIO_ACEITE',
+        updateVanTires: maintUpdateTires || maintType === 'NEUMATICOS',
+        nextOilChangeKm: maintNextOilKm !== '' ? Number(maintNextOilKm) : undefined,
+      }
+
+      if (editingMaintenance) {
+        await api.patch(`/vans/${maintVanId}/maintenances/${editingMaintenance.id}`, payload)
+      } else {
+        await api.post(`/vans/${maintVanId}/maintenances`, payload)
+      }
+
+      setShowMaintenanceModal(false)
+      if (selectedVanForMaintenance && selectedVanForMaintenance.id === maintVanId) {
+        refreshSelectedVanMaintenances(maintVanId)
+      } else {
+        fetchVans()
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Error al guardar mantención')
+    } finally {
+      setIsSavingMaintenance(false)
+    }
+  }
+
+  const handleDeleteMaintenance = async (vanId: string, maintenanceId: string, title: string) => {
+    if (!confirm(`¿Estás seguro de eliminar el registro de mantención "${title}"?`)) return
+    try {
+      await api.delete(`/vans/${vanId}/maintenances/${maintenanceId}`)
+      if (selectedVanForMaintenance) {
+        refreshSelectedVanMaintenances(vanId)
+      }
+      fetchVans()
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Error al eliminar mantención')
+    }
+  }
+
+  // Filtered lists
   const filteredVans = vans.filter((v) => {
     const query = searchTerm.toLowerCase().trim()
     const activeItems = (v.items || []).filter((i) => i.quantity > 0)
@@ -457,7 +705,7 @@ export default function CamionetasPage() {
       v.name.toLowerCase().includes(query) ||
       (v.driver && v.driver.toLowerCase().includes(query)) ||
       activeItems.some((i) => i.name.toLowerCase().includes(query) || (i.sku && i.sku.toLowerCase().includes(query)))
-    
+
     const alerts = getVanAlerts(v)
     const matchesStatus =
       filterStatus === 'TODOS'
@@ -468,12 +716,36 @@ export default function CamionetasPage() {
     return matchesSearch && matchesStatus
   })
 
+  // All fleet maintenances
+  const allFleetMaintenances = vans.flatMap((v) =>
+    (v.maintenances || []).map((m) => ({
+      ...m,
+      van: { id: v.id, plate: v.plate, name: v.name, driver: v.driver },
+    }))
+  ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+  const filteredFleetMaintenances = allFleetMaintenances.filter((m) => {
+    const query = searchTerm.toLowerCase().trim()
+    const matchesSearch =
+      !query ||
+      m.title.toLowerCase().includes(query) ||
+      m.description.toLowerCase().includes(query) ||
+      (m.workshop && m.workshop.toLowerCase().includes(query)) ||
+      (m.invoiceNumber && m.invoiceNumber.toLowerCase().includes(query)) ||
+      (m.van && (m.van.plate.toLowerCase().includes(query) || m.van.name.toLowerCase().includes(query)))
+
+    const matchesType = maintenanceFilterType === 'TODOS' || m.type === maintenanceFilterType
+    return matchesSearch && matchesType
+  })
+
   // Summary Metrics
   const totalVans = vans.length
   const activeVans = vans.filter((v) => v.status === 'EN_TERRENO').length
   const alertVans = vans.filter((v) => getVanAlerts(v).length > 0).length
   const totalTools = vans.reduce((sum, v) => sum + (v.toolsCount || 0), 0)
   const totalMaterials = vans.reduce((sum, v) => sum + (v.materialsCount || 0), 0)
+  const totalFleetMaintenanceCost = vans.reduce((sum, v) => sum + (v.totalMaintenanceCost || 0), 0)
+  const totalFleetMaintenancesCount = vans.reduce((sum, v) => sum + (v.maintenancesCount || 0), 0)
 
   return (
     <div className="space-y-6">
@@ -481,17 +753,49 @@ export default function CamionetasPage() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-            <span>🛻</span> Control Terreno - Stock por Camioneta
+            <span>🛻</span> Control Terreno - Stock & Mantenciones de Flota
           </h1>
           <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
-            Gestión y seguimiento de materiales y herramientas asignados a vehículos en terreno
+            Gestión y seguimiento de vehículos, mantenciones, costos, fotografías e inventario en terreno
           </p>
         </div>
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => handleOpenAddMaintenanceModal()}
+            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition shadow flex items-center gap-2 text-sm"
+          >
+            <span>🛠️</span> Registrar Mantención
+          </button>
+          <button
+            onClick={() => handleOpenVanModal()}
+            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition shadow flex items-center gap-2 text-sm"
+          >
+            <span>➕</span> Registrar Camioneta
+          </button>
+        </div>
+      </div>
+
+      {/* Main Tabs Switcher */}
+      <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-700 w-full sm:w-max">
         <button
-          onClick={() => handleOpenVanModal()}
-          className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition shadow-lg flex items-center gap-2 text-sm"
+          onClick={() => setActiveMainTab('STOCK')}
+          className={`flex-1 sm:flex-initial px-5 py-2 rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 ${
+            activeMainTab === 'STOCK'
+              ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+          }`}
         >
-          <span>➕</span> Registrar Camioneta
+          <span>📦</span> Stock & Herramientas en Terreno ({totalVans})
+        </button>
+        <button
+          onClick={() => setActiveMainTab('MANTENCIONES')}
+          className={`flex-1 sm:flex-initial px-5 py-2 rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 ${
+            activeMainTab === 'MANTENCIONES'
+              ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-sm'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+          }`}
+        >
+          <span>🛠️</span> Panel de Mantenciones y Costos ({totalFleetMaintenancesCount})
         </button>
       </div>
 
@@ -527,9 +831,13 @@ export default function CamionetasPage() {
               : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
           }`}
         >
-          <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center text-xl sm:text-2xl font-bold shrink-0 ${
-            alertVans > 0 ? 'bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-400 animate-pulse' : 'bg-slate-100 dark:bg-slate-800 text-slate-400'
-          }`}>
+          <div
+            className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center text-xl sm:text-2xl font-bold shrink-0 ${
+              alertVans > 0
+                ? 'bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-400 animate-pulse'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-400'
+            }`}
+          >
             ⚠️
           </div>
           <div>
@@ -541,22 +849,26 @@ export default function CamionetasPage() {
         </button>
 
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm flex items-center space-x-3">
-          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center text-xl sm:text-2xl font-bold shrink-0">
-            🛠️
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-xl sm:text-2xl font-bold shrink-0">
+            💰
           </div>
           <div>
-            <p className="text-[11px] font-semibold text-slate-400 uppercase">Herramientas</p>
-            <p className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">{totalTools}</p>
+            <p className="text-[11px] font-semibold text-slate-400 uppercase">Inversión Mantenciones</p>
+            <p className="text-base sm:text-lg font-extrabold text-emerald-600 dark:text-emerald-400">
+              ${totalFleetMaintenanceCost.toLocaleString('es-CL')}
+            </p>
           </div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm flex items-center space-x-3">
-          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400 flex items-center justify-center text-xl sm:text-2xl font-bold shrink-0">
-            📦
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center text-xl sm:text-2xl font-bold shrink-0">
+            🛠️
           </div>
           <div>
-            <p className="text-[11px] font-semibold text-slate-400 uppercase">Materiales</p>
-            <p className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">{totalMaterials}</p>
+            <p className="text-[11px] font-semibold text-slate-400 uppercase">Stock Items Terreno</p>
+            <p className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">
+              {totalTools + totalMaterials}
+            </p>
           </div>
         </div>
       </div>
@@ -568,212 +880,913 @@ export default function CamionetasPage() {
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Buscar por patente, nombre o conductor..."
+            placeholder={
+              activeMainTab === 'STOCK'
+                ? 'Buscar por patente, nombre, conductor o herramientas...'
+                : 'Buscar mantención por título, qué se le hizo, taller, factura o patente...'
+            }
             className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
-        <div className="w-full sm:w-56">
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="TODOS">Todos los Estados</option>
-            <option value="CON_ALERTAS">⚠️ Solo con Alertas Críticas</option>
-            <option value="EN_TERRENO">En Terreno</option>
-            <option value="DISPONIBLE">Disponible en Base</option>
-            <option value="MANTENCION">En Mantención</option>
-          </select>
-        </div>
+        {activeMainTab === 'STOCK' ? (
+          <div className="w-full sm:w-56">
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="TODOS">Todos los Estados</option>
+              <option value="CON_ALERTAS">⚠️ Solo con Alertas Críticas</option>
+              <option value="EN_TERRENO">En Terreno</option>
+              <option value="DISPONIBLE">Disponible en Base</option>
+              <option value="MANTENCION">En Mantención</option>
+            </select>
+          </div>
+        ) : (
+          <div className="w-full sm:w-64">
+            <select
+              value={maintenanceFilterType}
+              onChange={(e) => setMaintenanceFilterType(e.target.value)}
+              className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            >
+              <option value="TODOS">Todos los Tipos de Servicio</option>
+              {MAINTENANCE_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
-      {/* Vans Grid */}
-      {loading ? (
-        <div className="p-12 text-center text-slate-500">Cargando flota de vehículos...</div>
-      ) : filteredVans.length === 0 ? (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-12 text-center space-y-3">
-          <span className="text-4xl block">🛻</span>
-          <p className="text-lg font-bold text-slate-800 dark:text-slate-200">No hay camionetas encontradas</p>
-          <p className="text-sm text-slate-500">Prueba ajustando los filtros o el término de búsqueda.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filteredVans.map((van) => {
-            const statusBg =
-              van.status === 'EN_TERRENO'
-                ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
-                : van.status === 'DISPONIBLE'
-                ? 'bg-blue-500/10 text-blue-500 border-blue-500/20'
-                : 'bg-amber-500/10 text-amber-500 border-amber-500/20'
+      {/* ============================================================
+          TAB 1: FLOTA & STOCK DE CAMIONETAS
+          ============================================================ */}
+      {activeMainTab === 'STOCK' && (
+        <>
+          {loading ? (
+            <div className="p-12 text-center text-slate-500">Cargando flota de vehículos...</div>
+          ) : filteredVans.length === 0 ? (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-12 text-center space-y-3">
+              <span className="text-4xl block">🛻</span>
+              <p className="text-lg font-bold text-slate-800 dark:text-slate-200">No hay camionetas encontradas</p>
+              <p className="text-sm text-slate-500">Prueba ajustando los filtros o el término de búsqueda.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {filteredVans.map((van) => {
+                const statusBg =
+                  van.status === 'EN_TERRENO'
+                    ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
+                    : van.status === 'DISPONIBLE'
+                    ? 'bg-blue-500/10 text-blue-500 border-blue-500/20'
+                    : 'bg-amber-500/10 text-amber-500 border-amber-500/20'
 
-            const alerts = getVanAlerts(van)
-            const hasExpired = alerts.some((a) => a.type === 'EXPIRED')
+                const alerts = getVanAlerts(van)
+                const hasExpired = alerts.some((a) => a.type === 'EXPIRED')
+                const vanMaintCount = van.maintenancesCount || (van.maintenances || []).length
+                const vanMaintCost = van.totalMaintenanceCost || (van.maintenances || []).reduce((s, m) => s + (m.cost || 0), 0)
 
-            return (
-              <div
-                key={van.id}
-                className={`bg-white dark:bg-slate-900 border rounded-2xl p-5 shadow-sm hover:shadow-md transition space-y-4 flex flex-col justify-between ${
-                  hasExpired
-                    ? 'border-rose-300 dark:border-rose-900/60 ring-1 ring-rose-500/20'
-                    : alerts.length > 0
-                    ? 'border-amber-300 dark:border-amber-900/60'
-                    : 'border-slate-200 dark:border-slate-800'
-                }`}
-              >
-                <div className="space-y-3">
-                  <div className="flex justify-between items-start gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="px-2.5 py-1 bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-mono font-bold rounded-lg text-sm tracking-wider">
-                          {van.plate}
-                        </span>
-                        <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${statusBg}`}>
-                          {van.status.replace('_', ' ')}
-                        </span>
-                      </div>
-                      <h3 className="font-extrabold text-base text-slate-900 dark:text-white mt-1.5">{van.name}</h3>
-                    </div>
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => handleOpenVanModal(van)}
-                        className="p-1.5 text-slate-400 hover:text-blue-500 transition text-sm"
-                        title="Editar"
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        onClick={() => handleDeleteVan(van.id, van.plate)}
-                        className="p-1.5 text-slate-400 hover:text-red-500 transition text-sm"
-                        title="Eliminar"
-                      >
-                        🗑️
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Banner de Alertas Críticas de Vencimiento */}
-                  {alerts.length > 0 && (
-                    <div className={`p-2.5 rounded-xl border text-xs space-y-1 ${
+                return (
+                  <div
+                    key={van.id}
+                    className={`bg-white dark:bg-slate-900 border rounded-2xl p-5 shadow-sm hover:shadow-md transition space-y-4 flex flex-col justify-between ${
                       hasExpired
-                        ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/60 text-rose-800 dark:text-rose-200'
-                        : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/60 text-amber-800 dark:text-amber-200'
-                    }`}>
-                      <p className="font-bold flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
-                        <span>{hasExpired ? '🚨 Alerta de Vencimiento Crítico' : '⚠️ Alerta de Próximo Vencimiento'}</span>
-                      </p>
-                      <ul className="space-y-1 pl-1 text-[11px]">
-                        {alerts.map((alt, idx) => (
-                          <li key={idx} className="flex flex-col">
-                            <span className="font-bold">{alt.title}</span>
-                            <span className="text-[10.5px] opacity-90 pl-2">{alt.detail}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
+                        ? 'border-rose-300 dark:border-rose-900/60 ring-1 ring-rose-500/20'
+                        : alerts.length > 0
+                        ? 'border-amber-300 dark:border-amber-900/60'
+                        : 'border-slate-200 dark:border-slate-800'
+                    }`}
+                  >
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-start gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="px-2.5 py-1 bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-mono font-bold rounded-lg text-sm tracking-wider">
+                              {van.plate}
+                            </span>
+                            <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${statusBg}`}>
+                              {van.status.replace('_', ' ')}
+                            </span>
+                          </div>
+                          <h3 className="font-extrabold text-base text-slate-900 dark:text-white mt-1.5">{van.name}</h3>
+                        </div>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => handleOpenVanModal(van)}
+                            className="p-1.5 text-slate-400 hover:text-blue-500 transition text-sm"
+                            title="Editar Ficha"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            onClick={() => handleDeleteVan(van.id, van.plate)}
+                            className="p-1.5 text-slate-400 hover:text-red-500 transition text-sm"
+                            title="Eliminar"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
 
-                  <div className="space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
-                    <p className="flex items-center gap-1.5">
-                      <span className="font-semibold text-slate-400">👤 Conductor:</span>
-                      <span className="font-bold text-slate-800 dark:text-slate-200">{van.driver || 'No asignado'}</span>
-                    </p>
-                    {van.notes && <p className="text-slate-400 italic text-[11px]">"{van.notes}"</p>}
+                      {/* Banner de Alertas Críticas de Vencimiento */}
+                      {alerts.length > 0 && (
+                        <div
+                          className={`p-2.5 rounded-xl border text-xs space-y-1 ${
+                            hasExpired
+                              ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/60 text-rose-800 dark:text-rose-200'
+                              : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/60 text-amber-800 dark:text-amber-200'
+                          }`}
+                        >
+                          <p className="font-bold flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
+                            <span>{hasExpired ? '🚨 Alerta de Vencimiento Crítico' : '⚠️ Alerta de Próximo Vencimiento'}</span>
+                          </p>
+                          <ul className="space-y-1 pl-1 text-[11px]">
+                            {alerts.map((alt, idx) => (
+                              <li key={idx} className="flex flex-col">
+                                <span className="font-bold">{alt.title}</span>
+                                <span className="text-[10.5px] opacity-90 pl-2">{alt.detail}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      <div className="space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
+                        <p className="flex items-center gap-1.5">
+                          <span className="font-semibold text-slate-400">👤 Conductor:</span>
+                          <span className="font-bold text-slate-800 dark:text-slate-200">{van.driver || 'No asignado'}</span>
+                        </p>
+                        {van.notes && <p className="text-slate-400 italic text-[11px]">"{van.notes}"</p>}
+                      </div>
+
+                      {/* Ficha Vehicular y Mantenimiento */}
+                      <div className="p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800/80 space-y-1.5 text-[11px]">
+                        <div className="flex justify-between items-center text-slate-500 font-semibold border-b border-slate-200/50 dark:border-slate-700/50 pb-1 mb-1">
+                          <span>🛠️ Ficha del Vehículo</span>
+                          <span className="font-mono text-slate-800 dark:text-slate-200 font-bold">
+                            {van.mileage ? `${van.mileage.toLocaleString('es-CL')} KM` : 'KM s/r'}
+                          </span>
+                        </div>
+
+                        <div className="space-y-1 text-[10.5px]">
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400">📋 Rev. Técnica:</span>
+                            <span
+                              className={`font-semibold ${
+                                alerts.some((a) => a.field === 'technicalReviewDate')
+                                  ? 'text-rose-600 dark:text-rose-400 font-bold'
+                                  : 'text-slate-700 dark:text-slate-300'
+                              }`}
+                            >
+                              {formatChileanDate(van.technicalReviewDate)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400">🛡️ Seguro SOAP:</span>
+                            <span
+                              className={`font-semibold ${
+                                alerts.some((a) => a.field === 'insuranceExpiryDate')
+                                  ? 'text-rose-600 dark:text-rose-400 font-bold'
+                                  : 'text-slate-700 dark:text-slate-300'
+                              }`}
+                            >
+                              {formatChileanDate(van.insuranceExpiryDate)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400">📑 Perm. Circulación:</span>
+                            <span
+                              className={`font-semibold ${
+                                alerts.some((a) => a.field === 'permisoCirculacionDate')
+                                  ? 'text-rose-600 dark:text-rose-400 font-bold'
+                                  : 'text-slate-700 dark:text-slate-300'
+                              }`}
+                            >
+                              {formatChileanDate(van.permisoCirculacionDate)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400">🛢️ Próx. Aceite:</span>
+                            <span
+                              className={`font-semibold ${
+                                alerts.some((a) => a.field === 'nextOilChangeKm')
+                                  ? 'text-rose-600 dark:text-rose-400 font-bold'
+                                  : 'text-slate-700 dark:text-slate-300'
+                              }`}
+                            >
+                              {van.nextOilChangeKm ? `${van.nextOilChangeKm.toLocaleString('es-CL')} KM` : 's/r'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400">🛞 Últ. Neumáticos:</span>
+                            <span className="font-semibold text-slate-700 dark:text-slate-300">
+                              {formatChileanDate(van.lastTireChangeDate)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Stock Summary Metrics */}
+                      <div className="grid grid-cols-2 gap-2 pt-1 text-center text-xs">
+                        <div className="bg-slate-50 dark:bg-slate-800/50 p-2 rounded-xl border border-slate-100 dark:border-slate-800">
+                          <span className="block text-slate-400 font-semibold text-[10px]">HERRAMIENTAS</span>
+                          <span className="font-bold text-indigo-600 dark:text-indigo-400 text-base">
+                            {van.toolsCount || 0}
+                          </span>
+                        </div>
+                        <div className="bg-slate-50 dark:bg-slate-800/50 p-2 rounded-xl border border-slate-100 dark:border-slate-800">
+                          <span className="block text-slate-400 font-semibold text-[10px]">MATERIALES</span>
+                          <span className="font-bold text-amber-600 dark:text-amber-400 text-base">
+                            {van.materialsCount || 0}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="space-y-2 pt-2">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleOpenMaintenancePanel(van)}
+                          className="flex-1 py-2 px-2.5 bg-emerald-50 hover:bg-emerald-600 hover:text-white dark:bg-emerald-950/30 dark:hover:bg-emerald-600 text-emerald-700 dark:text-emerald-300 font-bold rounded-xl transition text-xs flex items-center justify-center gap-1.5 border border-emerald-200 dark:border-emerald-800/50"
+                        >
+                          <span>🛠️</span> Mantenciones ({vanMaintCount})
+                        </button>
+                        <button
+                          onClick={() => handleOpenAddMaintenanceModal(van.id)}
+                          className="p-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl transition text-xs flex items-center justify-center"
+                          title="Registrar Mantención"
+                        >
+                          ➕
+                        </button>
+                      </div>
+
+                      <button
+                        onClick={() => handleOpenManageItems(van)}
+                        className="w-full py-2.5 bg-slate-100 hover:bg-blue-600 hover:text-white dark:bg-slate-800 dark:hover:bg-blue-600 text-slate-800 dark:text-slate-200 font-bold rounded-xl transition text-xs flex items-center justify-center gap-2"
+                      >
+                        <span>📦</span> Ver / Gestionar Stock ({van.totalItems || 0} ítems)
+                      </button>
+                    </div>
                   </div>
+                )
+              })}
+            </div>
+          )}
+        </>
+      )}
 
-                  {/* Ficha Vehicular y Mantenimiento */}
-                  <div className="p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800/80 space-y-1.5 text-[11px]">
-                    <div className="flex justify-between items-center text-slate-500 font-semibold border-b border-slate-200/50 dark:border-slate-700/50 pb-1 mb-1">
-                      <span>🛠️ Ficha del Vehículo</span>
-                      <span className="font-mono text-slate-800 dark:text-slate-200 font-bold">
-                        {van.mileage ? `${van.mileage.toLocaleString('es-CL')} KM` : 'KM s/r'}
-                      </span>
-                    </div>
+      {/* ============================================================
+          TAB 2: HISTORIAL GENERAL DE MANTENCIONES DE FLOTA
+          ============================================================ */}
+      {activeMainTab === 'MANTENCIONES' && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <span>📋</span> Historial Global de Mantenciones de la Flota
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Registro detallado de trabajos, talleres, precios, kilometrajes y fotografías de comprobantes
+              </p>
+            </div>
+            <button
+              onClick={() => handleOpenAddMaintenanceModal()}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition shadow flex items-center gap-1.5"
+            >
+              <span>➕</span> Nueva Mantención
+            </button>
+          </div>
 
-                    <div className="space-y-1 text-[10.5px]">
-                      <div className="flex justify-between items-center">
-                        <span className="text-slate-400">📋 Rev. Técnica:</span>
-                        <span className={`font-semibold ${
-                          alerts.some((a) => a.field === 'technicalReviewDate')
-                            ? 'text-rose-600 dark:text-rose-400 font-bold'
-                            : 'text-slate-700 dark:text-slate-300'
-                        }`}>
-                          {formatDateDisplay(van.technicalReviewDate)}
+          {filteredFleetMaintenances.length === 0 ? (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-12 text-center space-y-3">
+              <span className="text-4xl block">🛠️</span>
+              <p className="text-lg font-bold text-slate-800 dark:text-slate-200">No hay mantenciones registradas</p>
+              <p className="text-sm text-slate-500">
+                Haz clic en "Registrar Mantención" para ingresar los trabajos y adjuntar comprobantes o fotografías.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {filteredFleetMaintenances.map((maint) => {
+                const typeObj = MAINTENANCE_TYPES.find((t) => t.value === maint.type) || {
+                  label: maint.type,
+                  color: 'bg-slate-500/10 text-slate-500 border-slate-500/20',
+                }
+
+                let imagesList: AttachedImage[] = []
+                if (maint.imagesJson) {
+                  try {
+                    imagesList = JSON.parse(maint.imagesJson)
+                  } catch {}
+                } else if (maint.imageUrl) {
+                  imagesList = [{ id: 'img-1', name: maint.imageName || 'Comprobante', url: maint.imageUrl }]
+                }
+
+                return (
+                  <div
+                    key={maint.id}
+                    className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm hover:shadow-md transition space-y-3 flex flex-col justify-between"
+                  >
+                    <div className="space-y-2.5">
+                      {/* Top Header */}
+                      <div className="flex justify-between items-start gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {maint.van && (
+                            <span className="px-2.5 py-0.5 bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-mono font-bold rounded text-xs">
+                              {maint.van.plate}
+                            </span>
+                          )}
+                          <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${typeObj.color}`}>
+                            {typeObj.label}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-slate-500 dark:text-slate-400 font-mono bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
+                            📅 {formatChileanDate(maint.date)}
+                          </span>
+                          <button
+                            onClick={() => handleOpenAddMaintenanceModal(maint.vanId, maint)}
+                            className="p-1 text-slate-400 hover:text-blue-500 transition text-xs"
+                            title="Editar Mantención"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            onClick={() => handleDeleteMaintenance(maint.vanId, maint.id, maint.title)}
+                            className="p-1 text-slate-400 hover:text-red-500 transition text-xs"
+                            title="Eliminar Mantención"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Title & Cost */}
+                      <div className="flex justify-between items-start gap-2">
+                        <h3 className="font-bold text-sm text-slate-900 dark:text-white">{maint.title}</h3>
+                        <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800 shrink-0">
+                          ${(maint.cost || 0).toLocaleString('es-CL')} CLP
                         </span>
                       </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-slate-400">🛡️ Seguro SOAP:</span>
-                        <span className={`font-semibold ${
-                          alerts.some((a) => a.field === 'insuranceExpiryDate')
-                            ? 'text-rose-600 dark:text-rose-400 font-bold'
-                            : 'text-slate-700 dark:text-slate-300'
-                        }`}>
-                          {formatDateDisplay(van.insuranceExpiryDate)}
-                        </span>
+
+                      {/* Description ("Qué se le hizo") */}
+                      <div className="p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl text-xs text-slate-700 dark:text-slate-300 border border-slate-100 dark:border-slate-800">
+                        <p className="font-semibold text-[11px] text-slate-400 uppercase mb-1">🔧 Trabajos Realizados:</p>
+                        <p className="whitespace-pre-line leading-relaxed">{maint.description}</p>
                       </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-slate-400">📑 Perm. Circulación:</span>
-                        <span className={`font-semibold ${
-                          alerts.some((a) => a.field === 'permisoCirculacionDate')
-                            ? 'text-rose-600 dark:text-rose-400 font-bold'
-                            : 'text-slate-700 dark:text-slate-300'
-                        }`}>
-                          {formatDateDisplay(van.permisoCirculacionDate)}
-                        </span>
+
+                      {/* Extra Details (Workshop, KM, Invoice) */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                        {maint.mileage ? (
+                          <div>
+                            <span className="font-semibold text-slate-400">Kilometraje: </span>
+                            <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                              {maint.mileage.toLocaleString('es-CL')} KM
+                            </span>
+                          </div>
+                        ) : null}
+                        {maint.workshop ? (
+                          <div>
+                            <span className="font-semibold text-slate-400">Taller/Mecánico: </span>
+                            <span className="font-medium text-slate-700 dark:text-slate-300">{maint.workshop}</span>
+                          </div>
+                        ) : null}
+                        {maint.invoiceNumber ? (
+                          <div>
+                            <span className="font-semibold text-slate-400">N° Factura/OT: </span>
+                            <span className="font-mono text-slate-700 dark:text-slate-300">{maint.invoiceNumber}</span>
+                          </div>
+                        ) : null}
                       </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-slate-400">🛢️ Próx. Aceite:</span>
-                        <span className={`font-semibold ${
-                          alerts.some((a) => a.field === 'nextOilChangeKm')
-                            ? 'text-rose-600 dark:text-rose-400 font-bold'
-                            : 'text-slate-700 dark:text-slate-300'
-                        }`}>
-                          {van.nextOilChangeKm ? `${van.nextOilChangeKm.toLocaleString('es-CL')} KM` : 's/r'}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-slate-400">🛞 Últ. Neumáticos:</span>
-                        <span className="font-semibold text-slate-700 dark:text-slate-300">
-                          {formatDateDisplay(van.lastTireChangeDate)}
-                        </span>
-                      </div>
+
+                      {/* Attached Images Gallery */}
+                      {imagesList.length > 0 && (
+                        <div className="space-y-1.5 pt-1">
+                          <p className="text-[11px] font-semibold text-slate-400 flex items-center gap-1">
+                            <span>📷</span> Fotografías / Comprobantes ({imagesList.length}):
+                          </p>
+                          <div className="flex gap-2 flex-wrap">
+                            {imagesList.map((img) => (
+                              <button
+                                key={img.id}
+                                onClick={() => setZoomedImage({ url: img.url, title: `${maint.title} - ${img.name}` })}
+                                className="group relative w-16 h-16 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 hover:ring-2 hover:ring-emerald-500 transition shadow-sm shrink-0"
+                              >
+                                <img src={img.url} alt={img.name} className="w-full h-full object-cover group-hover:scale-105 transition" />
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs transition">
+                                  🔍
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
-
-                  <div className="grid grid-cols-2 gap-2 pt-1 text-center text-xs">
-                    <div className="bg-slate-50 dark:bg-slate-800/50 p-2 rounded-xl border border-slate-100 dark:border-slate-800">
-                      <span className="block text-slate-400 font-semibold text-[10px]">HERRAMIENTAS</span>
-                      <span className="font-bold text-indigo-600 dark:text-indigo-400 text-base">
-                        {van.toolsCount || 0}
-                      </span>
-                    </div>
-                    <div className="bg-slate-50 dark:bg-slate-800/50 p-2 rounded-xl border border-slate-100 dark:border-slate-800">
-                      <span className="block text-slate-400 font-semibold text-[10px]">MATERIALES</span>
-                      <span className="font-bold text-amber-600 dark:text-amber-400 text-base">
-                        {van.materialsCount || 0}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => handleOpenManageItems(van)}
-                  className="w-full py-2.5 bg-slate-100 hover:bg-blue-600 hover:text-white dark:bg-slate-800 dark:hover:bg-blue-600 text-slate-800 dark:text-slate-200 font-bold rounded-xl transition text-xs flex items-center justify-center gap-2 mt-2"
-                >
-                  <span>📦</span> Ver / Gestionar Stock ({van.totalItems || 0} ítems)
-                </button>
-              </div>
-            )
-          })}
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Modal Crear / Editar Camioneta */}
+      {/* ============================================================
+          MODAL: HISTORIAL DE MANTENCIONES DE VEHÍCULO ESPECÍFICO
+          ============================================================ */}
+      {selectedVanForMaintenance && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-4xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] my-auto flex flex-col">
+            {/* Header */}
+            <div className="flex justify-between items-start border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-1 bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-mono font-bold rounded-lg text-sm">
+                    {selectedVanForMaintenance.plate}
+                  </span>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">{selectedVanForMaintenance.name}</h3>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">
+                  Conductor:{' '}
+                  <span className="text-slate-700 dark:text-slate-200 font-semibold">
+                    {selectedVanForMaintenance.driver || 'No asignado'}
+                  </span>{' '}
+                  | Kilometraje actual:{' '}
+                  <span className="font-mono font-bold text-slate-700 dark:text-slate-200">
+                    {selectedVanForMaintenance.mileage ? `${selectedVanForMaintenance.mileage.toLocaleString('es-CL')} KM` : 's/r'}
+                  </span>
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedVanForMaintenance(null)}
+                className="text-slate-400 hover:text-white text-xl p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Actions & Summary Bar */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-100 dark:border-slate-800 shrink-0">
+              <div className="flex items-center gap-4 text-xs">
+                <div>
+                  <span className="text-slate-400 block font-semibold text-[10px]">TOTAL MANTENCIONES</span>
+                  <span className="font-extrabold text-slate-800 dark:text-slate-100 text-sm">
+                    {vanMaintenances.length}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block font-semibold text-[10px]">INVERSIÓN TOTAL</span>
+                  <span className="font-extrabold text-emerald-600 dark:text-emerald-400 text-sm">
+                    ${vanMaintenances.reduce((s, m) => s + (m.cost || 0), 0).toLocaleString('es-CL')} CLP
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => handleOpenAddMaintenanceModal(selectedVanForMaintenance.id)}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition shadow flex items-center gap-1.5"
+              >
+                <span>➕</span> Registrar Mantención
+              </button>
+            </div>
+
+            {/* Maintenances List */}
+            <div className="overflow-y-auto space-y-3 pr-1 flex-1">
+              {loadingMaintenances ? (
+                <div className="p-12 text-center text-slate-400 text-xs">Cargando historial de mantenciones...</div>
+              ) : vanMaintenances.length === 0 ? (
+                <div className="p-8 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-xl space-y-2">
+                  <span className="text-3xl block">🛠️</span>
+                  <p className="font-bold text-sm text-slate-700 dark:text-slate-300">
+                    No hay mantenciones registradas para este vehículo
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    Haz clic en "Registrar Mantención" para añadir detalles de servicios, costos e imágenes.
+                  </p>
+                </div>
+              ) : (
+                vanMaintenances.map((maint) => {
+                  const typeObj = MAINTENANCE_TYPES.find((t) => t.value === maint.type) || {
+                    label: maint.type,
+                    color: 'bg-slate-500/10 text-slate-500 border-slate-500/20',
+                  }
+
+                  let imagesList: AttachedImage[] = []
+                  if (maint.imagesJson) {
+                    try {
+                      imagesList = JSON.parse(maint.imagesJson)
+                    } catch {}
+                  } else if (maint.imageUrl) {
+                    imagesList = [{ id: 'img-1', name: maint.imageName || 'Comprobante', url: maint.imageUrl }]
+                  }
+
+                  return (
+                    <div
+                      key={maint.id}
+                      className="bg-slate-50/70 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 rounded-xl p-3.5 space-y-2.5 text-xs"
+                    >
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full border ${typeObj.color}`}>
+                            {typeObj.label}
+                          </span>
+                          <span className="font-mono font-bold text-slate-600 dark:text-slate-300">
+                            📅 {formatChileanDate(maint.date)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800 font-mono">
+                            ${(maint.cost || 0).toLocaleString('es-CL')} CLP
+                          </span>
+                          <button
+                            onClick={() => handleOpenAddMaintenanceModal(maint.vanId, maint)}
+                            className="p-1 text-slate-400 hover:text-blue-500 transition"
+                            title="Editar"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            onClick={() => handleDeleteMaintenance(maint.vanId, maint.id, maint.title)}
+                            className="p-1 text-slate-400 hover:text-red-500 transition"
+                            title="Eliminar"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <h4 className="font-bold text-slate-900 dark:text-white text-sm">{maint.title}</h4>
+                        <p className="text-slate-600 dark:text-slate-300 mt-1 whitespace-pre-line leading-relaxed">
+                          {maint.description}
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] text-slate-500 dark:text-slate-400 border-t border-slate-200/50 dark:border-slate-700/50 pt-2">
+                        {maint.mileage ? (
+                          <div>
+                            <span className="font-semibold text-slate-400">Kilometraje: </span>
+                            <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                              {maint.mileage.toLocaleString('es-CL')} KM
+                            </span>
+                          </div>
+                        ) : null}
+                        {maint.workshop ? (
+                          <div>
+                            <span className="font-semibold text-slate-400">Taller: </span>
+                            <span className="font-medium text-slate-700 dark:text-slate-300">{maint.workshop}</span>
+                          </div>
+                        ) : null}
+                        {maint.invoiceNumber ? (
+                          <div>
+                            <span className="font-semibold text-slate-400">N° Factura/OT: </span>
+                            <span className="font-mono text-slate-700 dark:text-slate-300">{maint.invoiceNumber}</span>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      {imagesList.length > 0 && (
+                        <div className="space-y-1 pt-1">
+                          <p className="text-[10.5px] font-semibold text-slate-400">📷 Comprobantes / Fotografías ({imagesList.length}):</p>
+                          <div className="flex gap-2 flex-wrap">
+                            {imagesList.map((img) => (
+                              <button
+                                key={img.id}
+                                onClick={() => setZoomedImage({ url: img.url, title: `${maint.title} - ${img.name}` })}
+                                className="group relative w-14 h-14 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 hover:ring-2 hover:ring-emerald-500 transition shadow-sm shrink-0"
+                              >
+                                <img src={img.url} alt={img.name} className="w-full h-full object-cover group-hover:scale-105 transition" />
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs transition">
+                                  🔍
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          MODAL: REGISTRAR / EDITAR MANTENCIÓN
+          ============================================================ */}
+      {showMaintenanceModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] my-auto flex flex-col">
+            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <span>🛠️</span> {editingMaintenance ? 'Editar Mantención' : 'Registrar Nueva Mantención'}
+              </h3>
+              <button
+                onClick={() => setShowMaintenanceModal(false)}
+                className="text-slate-400 hover:text-white text-xl"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveMaintenance} className="space-y-3.5 overflow-y-auto pr-1 flex-1 text-xs sm:text-sm">
+              {/* Van Selector */}
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Vehículo / Camioneta *
+                </label>
+                <select
+                  required
+                  value={maintVanId}
+                  onChange={(e) => setMaintVanId(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-bold"
+                >
+                  <option value="">Selecciona una camioneta...</option>
+                  {vans.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      [{v.plate}] {v.name} {v.driver ? `(${v.driver})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Date & Type */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Fecha de Mantención (DD/MM/AAAA) *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    min="2000-01-01"
+                    max="2100-12-31"
+                    value={maintDate}
+                    onChange={(e) => setMaintDate(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Tipo de Servicio *
+                  </label>
+                  <select
+                    required
+                    value={maintType}
+                    onChange={(e) => {
+                      setMaintType(e.target.value)
+                      if (e.target.value === 'CAMBIO_ACEITE') setMaintUpdateOil(true)
+                      if (e.target.value === 'NEUMATICOS') setMaintUpdateTires(true)
+                    }}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
+                  >
+                    {MAINTENANCE_TYPES.map((t) => (
+                      <option key={t.value} value={t.value}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Title / Summary */}
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Título / Resumen del Servicio *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={maintTitle}
+                  onChange={(e) => setMaintTitle(e.target.value)}
+                  placeholder="Ej: Cambio de pastillas de frenos y rectificado de discos"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
+                />
+              </div>
+
+              {/* Description ("Qué se le hizo") */}
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Detalle de Trabajos Realizados y Repuestos (¿Qué se le hizo?) *
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={maintDescription}
+                  onChange={(e) => setMaintDescription(e.target.value)}
+                  placeholder="Detallar minuciosamente qué repuestos se cambiaron, diagnósticos, observaciones mecánicas o estado del vehículo..."
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
+                />
+              </div>
+
+              {/* Cost & Mileage */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Precio / Costo ($ CLP) *
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    required
+                    value={maintCost}
+                    onChange={(e) => setMaintCost(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="Ej: 145000"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono font-bold text-emerald-600 dark:text-emerald-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Kilometraje al Servicio (KM)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={maintMileage}
+                    onChange={(e) => setMaintMileage(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="Ej: 154000"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Workshop & Invoice Number */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Taller / Mecánico / Proveedor
+                  </label>
+                  <input
+                    type="text"
+                    value={maintWorkshop}
+                    onChange={(e) => setMaintWorkshop(e.target.value)}
+                    placeholder="Ej: Taller Hernández / Concesionario"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    N° Factura / Boleta / OT
+                  </label>
+                  <input
+                    type="text"
+                    value={maintInvoiceNumber}
+                    onChange={(e) => setMaintInvoiceNumber(e.target.value)}
+                    placeholder="Ej: FAC-84920"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* ATTACH IMAGES SECTION */}
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2.5">
+                <div className="flex justify-between items-center">
+                  <label className="block font-bold text-xs uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                    <span>📷</span> Adjuntar Fotografías / Facturas
+                  </label>
+                  <span className="text-[11px] text-slate-400">{maintImages.length} foto(s)</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label className="cursor-pointer px-3 py-2 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-dashed border-emerald-500/60 rounded-xl text-xs font-semibold text-emerald-600 dark:text-emerald-400 transition flex items-center gap-1.5">
+                    <span>📁</span> Seleccionar Imágenes / Tomar Foto
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleImageUpload}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+
+                {maintImages.length > 0 && (
+                  <div className="flex gap-2 flex-wrap pt-1">
+                    {maintImages.map((img) => (
+                      <div key={img.id} className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-300 dark:border-slate-700 group shrink-0">
+                        <img src={img.url} alt={img.name} className="w-full h-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveImage(img.id)}
+                          className="absolute top-0.5 right-0.5 w-4 h-4 bg-red-600 text-white rounded-full text-[10px] flex items-center justify-center shadow opacity-90 hover:opacity-100"
+                          title="Eliminar foto"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Sync Options */}
+              <div className="p-3 bg-blue-50/50 dark:bg-blue-950/20 rounded-xl border border-blue-200/50 dark:border-blue-900/40 space-y-2 text-xs">
+                <p className="font-bold text-[11px] text-blue-700 dark:text-blue-300 uppercase tracking-wider">
+                  ⚙️ Actualización Automática de Ficha
+                </p>
+                <div className="space-y-1.5 text-slate-700 dark:text-slate-300">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={maintUpdateMileage}
+                      onChange={(e) => setMaintUpdateMileage(e.target.checked)}
+                      className="rounded text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>Actualizar kilometraje actual del vehículo con este valor ({maintMileage || 0} KM)</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={maintUpdateOil}
+                      onChange={(e) => setMaintUpdateOil(e.target.checked)}
+                      className="rounded text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>Actualizar fecha de último cambio de aceite a esta fecha</span>
+                  </label>
+
+                  {maintUpdateOil && (
+                    <div className="pl-5 pt-1">
+                      <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">
+                        Próximo cambio de aceite (KM estimado):
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={maintNextOilKm}
+                        onChange={(e) => setMaintNextOilKm(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="Ej: 165000"
+                        className="w-full px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono"
+                      />
+                    </div>
+                  )}
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={maintUpdateTires}
+                      onChange={(e) => setMaintUpdateTires(e.target.checked)}
+                      className="rounded text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>Actualizar fecha de cambio de neumáticos a esta fecha</span>
+                  </label>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSavingMaintenance}
+                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-sm transition shadow flex items-center justify-center gap-2"
+              >
+                {isSavingMaintenance ? 'Guardando...' : editingMaintenance ? 'Actualizar Mantención' : 'Guardar Registro de Mantención'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          MODAL: ZOOM DE IMAGEN / COMPROBANTE
+          ============================================================ */}
+      {zoomedImage && (
+        <div
+          className="fixed inset-0 bg-black/90 z-[60] flex flex-col items-center justify-center p-4 backdrop-blur-md"
+          onClick={() => setZoomedImage(null)}
+        >
+          <div className="max-w-4xl max-h-[85vh] w-full flex flex-col items-center relative" onClick={(e) => e.stopPropagation()}>
+            <div className="w-full flex justify-between items-center text-white pb-3">
+              <span className="font-bold text-sm truncate">{zoomedImage.title}</span>
+              <button
+                onClick={() => setZoomedImage(null)}
+                className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white font-bold rounded-lg text-sm transition"
+              >
+                Cerrar ✕
+              </button>
+            </div>
+            <img
+              src={zoomedImage.url}
+              alt={zoomedImage.title}
+              className="max-w-full max-h-[75vh] object-contain rounded-2xl shadow-2xl border border-white/10"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          MODAL: CREAR / EDITAR CAMIONETA Y FICHA TÉCNICA
+          ============================================================ */}
       {showVanModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] my-auto flex flex-col">
             <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
               <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                {editingVan ? 'Editar Camioneta y Mantenimiento' : 'Registrar Nueva Camioneta'}
+                {editingVan ? 'Editar Camioneta y Ficha Técnica' : 'Registrar Nueva Camioneta'}
               </h3>
               <button onClick={() => setShowVanModal(false)} className="text-slate-400 hover:text-white text-xl">
                 ✕
@@ -842,7 +1855,7 @@ export default function CamionetasPage() {
               {/* MANTENIMIENTO Y FICHA DE VEHÍCULO */}
               <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
                 <label className="block font-bold text-xs uppercase tracking-wider text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
-                  <span>🛠️</span> Ficha de Mantenimiento y Documentación
+                  <span>🛠️</span> Ficha de Mantenimiento y Documentación (DD/MM/AAAA)
                 </label>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -885,64 +1898,74 @@ export default function CamionetasPage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Fecha Últ. Cambio Aceite</label>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">
+                      Fecha Últ. Aceite (DD/MM/AAAA)
+                    </label>
                     <input
                       type="date"
                       min="2000-01-01"
                       max="2100-12-31"
                       value={lastOilChangeDate}
                       onChange={(e) => setLastOilChangeDate(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
+                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Fecha Cambio Neumáticos</label>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">
+                      Fecha Neumáticos (DD/MM/AAAA)
+                    </label>
                     <input
                       type="date"
                       min="2000-01-01"
                       max="2100-12-31"
                       value={lastTireChangeDate}
                       onChange={(e) => setLastTireChangeDate(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
+                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono"
                     />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Venc. Rev. Técnica</label>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">
+                      Venc. Rev. Técnica
+                    </label>
                     <input
                       type="date"
                       min="2000-01-01"
                       max="2100-12-31"
                       value={technicalReviewDate}
                       onChange={(e) => setTechnicalReviewDate(e.target.value)}
-                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
+                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold font-mono"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Venc. Seguro SOAP</label>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">
+                      Venc. Seguro SOAP
+                    </label>
                     <input
                       type="date"
                       min="2000-01-01"
                       max="2100-12-31"
                       value={insuranceExpiryDate}
                       onChange={(e) => setInsuranceExpiryDate(e.target.value)}
-                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
+                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold font-mono"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Venc. Perm. Circulación</label>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">
+                      Venc. Perm. Circulación
+                    </label>
                     <input
                       type="date"
                       min="2000-01-01"
                       max="2100-12-31"
                       value={permisoCirculacionDate}
                       onChange={(e) => setPermisoCirculacionDate(e.target.value)}
-                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
+                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold font-mono"
                     />
                   </div>
                 </div>
@@ -970,7 +1993,9 @@ export default function CamionetasPage() {
         </div>
       )}
 
-      {/* Modal / Drawer para Gestionar Ítems en la Camioneta */}
+      {/* ============================================================
+          MODAL: GESTIONAR STOCK DE ÍTEMS EN LA CAMIONETA
+          ============================================================ */}
       {selectedVan && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-3xl w-full p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
@@ -998,155 +2023,143 @@ export default function CamionetasPage() {
               </h4>
               <button
                 onClick={() => setShowItemModal(true)}
-                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition flex items-center gap-1"
+                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs transition shadow flex items-center gap-1.5"
               >
-                <span>➕</span> Asignar Herramienta / Material
+                <span>➕</span> Cargar Ítem a Camioneta
               </button>
             </div>
 
-            {/* Inner Filter and Search in Van Modal */}
-            <div className="flex flex-col sm:flex-row gap-2.5 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
-              <div className="relative flex-1">
-                <input
-                  type="text"
-                  value={itemSearchTerm}
-                  onChange={(e) => setItemSearchTerm(e.target.value)}
-                  placeholder="🔍 Buscar por nombre, SKU o categoría..."
-                  className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div className="flex gap-1">
-                {(['TODOS', 'HERRAMIENTA', 'MATERIAL'] as const).map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setItemFilterType(t)}
-                    className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition ${
-                      itemFilterType === t
-                        ? 'bg-blue-600 text-white shadow-sm'
-                        : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
+            {/* Sub-Filters */}
+            <div className="flex gap-2 flex-wrap">
+              <input
+                type="text"
+                value={itemSearchTerm}
+                onChange={(e) => setItemSearchTerm(e.target.value)}
+                placeholder="Filtrar ítems cargados..."
+                className="flex-1 min-w-[200px] px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white"
+              />
+              <select
+                value={itemFilterType}
+                onChange={(e: any) => setItemFilterType(e.target.value)}
+                className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white"
+              >
+                <option value="TODOS">Todos los tipos</option>
+                <option value="HERRAMIENTA">🛠️ Solo Herramientas</option>
+                <option value="MATERIAL">📦 Solo Materiales</option>
+              </select>
             </div>
 
-            {/* Items List */}
-            {(() => {
-              const activeVanItems = (selectedVan.items || []).filter((item) => item.quantity > 0)
-              const displayItems = activeVanItems.filter((item) => {
-                const query = itemSearchTerm.toLowerCase().trim()
-                const matchesText =
-                  !query ||
-                  item.name.toLowerCase().includes(query) ||
-                  (item.sku && item.sku.toLowerCase().includes(query)) ||
-                  item.category.toLowerCase().includes(query)
-                const matchesType = itemFilterType === 'TODOS' || item.type === itemFilterType
-                return matchesText && matchesType
-              })
-
-              if (activeVanItems.length === 0) {
-                return (
-                  <div className="p-8 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-slate-500 text-xs">
-                    No hay ítems asignados a esta camioneta actualmente.
-                  </div>
-                )
-              }
-
-              if (displayItems.length === 0) {
-                return (
-                  <div className="p-8 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-slate-500 text-xs">
-                    No se encontraron ítems que coincidan con la búsqueda o filtro seleccionados.
-                  </div>
-                )
-              }
-
-              return (
-                <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden text-xs">
-                  {displayItems.map((item) => (
-                    <div key={item.id} className="p-3.5 flex items-center justify-between gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              item.type === 'HERRAMIENTA'
-                                ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
-                                : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
-                            }`}
-                          >
-                            {item.type}
-                          </span>
-                          {item.sku && <span className="font-mono text-slate-400 text-[11px]">{item.sku}</span>}
-                        </div>
-                        <p className="font-bold text-slate-900 dark:text-white mt-1">{item.name}</p>
-                        <p className="text-[10px] text-slate-400">Categoría: {item.category}</p>
-                      </div>
-
-                      {/* Quantity & Action Controls */}
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleOpenRemoveModal(item, 1)}
-                          className="w-7 h-7 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white font-bold flex items-center justify-center hover:bg-slate-300 transition"
-                          title="Retirar o dar de baja 1 unidad"
+            {/* Table / List */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 font-semibold uppercase">
+                    <th className="py-2.5 px-3">Tipo</th>
+                    <th className="py-2.5 px-3">Ítem / Producto</th>
+                    <th className="py-2.5 px-3">Categoría</th>
+                    <th className="py-2.5 px-3 text-center">Cantidad</th>
+                    <th className="py-2.5 px-3 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {((selectedVan.items || []).filter((i) => {
+                    const matchQ =
+                      !itemSearchTerm ||
+                      i.name.toLowerCase().includes(itemSearchTerm.toLowerCase()) ||
+                      (i.sku && i.sku.toLowerCase().includes(itemSearchTerm.toLowerCase()))
+                    const matchT = itemFilterType === 'TODOS' || i.type === itemFilterType
+                    return matchQ && matchT
+                  })).map((item) => (
+                    <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                      <td className="py-2.5 px-3">
+                        <span
+                          className={`px-2 py-0.5 rounded font-bold text-[10px] ${
+                            item.type === 'HERRAMIENTA'
+                              ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
+                              : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                          }`}
                         >
-                          -
-                        </button>
-                        <span className="font-extrabold text-slate-900 dark:text-white w-8 text-center text-sm">
-                          {item.quantity}
+                          {item.type}
                         </span>
-                        <button
-                          onClick={() => handleUpdateItemQty(item.id, item.quantity + 1)}
-                          className="w-7 h-7 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white font-bold flex items-center justify-center hover:bg-slate-300 transition"
-                          title="Cargar 1 unidad adicional desde Bodega"
-                        >
-                          +
-                        </button>
-                      </div>
-
-                      <button
-                        onClick={() => handleOpenRemoveModal(item, item.quantity)}
-                        className="px-2.5 py-1 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 font-bold rounded-lg transition text-[11px] flex items-center gap-1 border border-rose-200 dark:border-rose-800/50"
-                        title="Sacar / Dar de baja este ítem"
-                      >
-                        <span>📤</span> Retirar
-                      </button>
-                    </div>
+                      </td>
+                      <td className="py-2.5 px-3 font-semibold text-slate-800 dark:text-slate-200">
+                        {item.name}
+                        {item.sku && <span className="block font-mono text-[10px] text-slate-400">{item.sku}</span>}
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-400">{item.category}</td>
+                      <td className="py-2.5 px-3 text-center font-bold text-slate-900 dark:text-white font-mono text-sm">
+                        {item.quantity}
+                      </td>
+                      <td className="py-2.5 px-3 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => handleUpdateItemQty(item.id, item.quantity + 1)}
+                            className="p-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 font-bold"
+                            title="Aumentar +1"
+                          >
+                            +1
+                          </button>
+                          <button
+                            onClick={() => handleOpenRemoveModal(item, 1)}
+                            className="px-2 py-1 bg-amber-500/10 text-amber-600 hover:bg-amber-500 hover:text-white rounded text-[11px] font-bold transition"
+                            title="Retirar cantidad"
+                          >
+                            Retirar
+                          </button>
+                          <button
+                            onClick={() => handleOpenRemoveModal(item, item.quantity)}
+                            className="p-1 text-slate-400 hover:text-red-500 transition"
+                            title="Dar de baja o devolver todo"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
                   ))}
-                </div>
-              )
-            })()}
+                  {(selectedVan.items || []).length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="text-center py-8 text-slate-400">
+                        No hay ítems cargados en esta camioneta.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Sub-modal: Agregar ítem a la camioneta */}
-      {showItemModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] my-auto flex flex-col">
-            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
-              <h4 className="text-base font-bold text-slate-900 dark:text-white">Asignar Ítem a la Camioneta</h4>
-              <button onClick={() => setShowItemModal(false)} className="text-slate-400 hover:text-white text-xl">
+      {/* ============================================================
+          MODAL: CARGAR NUEVO ÍTEM A CAMIONETA
+          ============================================================ */}
+      {showItemModal && selectedVan && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
+              <h4 className="font-bold text-slate-900 dark:text-white text-sm">
+                Cargar Ítem a [{selectedVan.plate}]
+              </h4>
+              <button onClick={() => setShowItemModal(false)} className="text-slate-400 hover:text-white">
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleAddItem} className="space-y-4 overflow-y-auto pr-1 flex-1">
+            <form onSubmit={handleAddItem} className="space-y-3.5 text-xs">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Buscar y Seleccionar desde el Inventario
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Seleccionar desde Catálogo Bodega (Opcional)
                 </label>
                 <SearchableProductSelect
                   products={products}
                   selectedProductId={itemProductId}
-                  onSelectProduct={(p) => handleSelectProduct(p ? p.id : '')}
-                  placeholder="🔍 Escribe para buscar por nombre, SKU o categoría..."
+                  onSelectProduct={handleSelectProduct}
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Nombre del Ítem / Herramienta *
                 </label>
                 <input
@@ -1154,243 +2167,125 @@ export default function CamionetasPage() {
                   required
                   value={itemName}
                   onChange={(e) => setItemName(e.target.value)}
-                  placeholder="Ej: Taladro Percutor / Patch Cord Cat6"
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm"
+                  placeholder="Ej: Multímetro Digital Fluke"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Tipo</label>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Tipo de Ítem</label>
                   <select
                     value={itemType}
                     onChange={(e) => setItemType(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
                   >
-                    <option value="HERRAMIENTA">HERRAMIENTA</option>
-                    <option value="MATERIAL">MATERIAL</option>
+                    <option value="HERRAMIENTA">🛠️ HERRAMIENTA</option>
+                    <option value="MATERIAL">📦 MATERIAL / INSUMO</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Categoría</label>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Cantidad a Asignar *</label>
                   <input
-                    type="text"
-                    value={itemCategory}
-                    onChange={(e) => setItemCategory(e.target.value)}
-                    placeholder="EQUIPOS / RED"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm"
+                    type="number"
+                    min="1"
+                    required
+                    value={itemQuantity}
+                    onChange={(e) => setItemQuantity(Math.max(1, Number(e.target.value)))}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono font-bold"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Cantidad *</label>
-                <input
-                  type="number"
-                  min="1"
-                  required
-                  value={itemQuantity === 0 ? '' : itemQuantity}
-                  onFocus={(e) => e.target.select()}
-                  onChange={(e) => setItemQuantity(e.target.value === '' ? 0 : Number(e.target.value))}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm font-bold text-center"
-                />
-              </div>
-
               {itemProductId && (
-                <div className="p-3 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl">
-                  <label className="flex items-center space-x-2 cursor-pointer text-xs text-blue-900 dark:text-blue-200 font-semibold">
-                    <input
-                      type="checkbox"
-                      checked={deductFromWarehouse}
-                      onChange={(e) => setDeductFromWarehouse(e.target.checked)}
-                      className="rounded text-blue-600 focus:ring-blue-500"
-                    />
-                    <span>Descontar {itemQuantity} del stock central de la Bodega</span>
-                  </label>
-                </div>
+                <label className="flex items-center gap-2 text-slate-600 dark:text-slate-400 cursor-pointer pt-1">
+                  <input
+                    type="checkbox"
+                    checked={deductFromWarehouse}
+                    onChange={(e) => setDeductFromWarehouse(e.target.checked)}
+                    className="rounded text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>Descontar automáticamente del stock de Bodega</span>
+                </label>
               )}
 
               <button
                 type="submit"
-                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-sm transition"
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition shadow text-xs mt-2"
               >
-                Confirmar Asignación
+                Cargar a la Camioneta
               </button>
             </form>
           </div>
         </div>
       )}
 
-      {/* Modal Sacar / Dar de baja Ítem de Camioneta */}
+      {/* ============================================================
+          MODAL: RETIRAR / DEVOLVER ÍTEM DE CAMIONETA
+          ============================================================ */}
       {showRemoveModal && itemToRemove && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] my-auto flex flex-col">
-            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
-              <h4 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <span>📦</span> Retirar Material de Camioneta
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
+              <h4 className="font-bold text-slate-900 dark:text-white text-sm">
+                Retirar Ítem: {itemToRemove.name}
               </h4>
-              <button onClick={() => setShowRemoveModal(false)} className="text-slate-400 hover:text-white text-xl">
+              <button onClick={() => setShowRemoveModal(false)} className="text-slate-400 hover:text-white">
                 ✕
               </button>
             </div>
 
-            <div className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700/60 space-y-1">
-              <div className="flex items-center gap-2">
-                <span
-                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                    itemToRemove.type === 'HERRAMIENTA'
-                      ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
-                      : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
-                  }`}
-                >
-                  {itemToRemove.type}
-                </span>
-                {itemToRemove.sku && <span className="font-mono text-slate-400 text-xs">{itemToRemove.sku}</span>}
-              </div>
-              <p className="font-bold text-slate-900 dark:text-white text-sm">{itemToRemove.name}</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Disponible actualmente en camioneta:{' '}
-                <span className="font-extrabold text-blue-600 dark:text-blue-400">{itemToRemove.quantity} un.</span>
-              </p>
-            </div>
-
-            <form onSubmit={handleConfirmRemoval} className="space-y-4 overflow-y-auto pr-1 flex-1">
-              {/* Cantidad a retirar */}
+            <form onSubmit={handleConfirmRemoval} className="space-y-3.5 text-xs">
               <div>
-                <div className="flex justify-between items-center mb-1">
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Cantidad a Retirar *
-                  </label>
-                  <span className="text-[11px] text-slate-400 font-medium">Máximo: {itemToRemove.quantity}</span>
-                </div>
-                <div className="flex gap-2 items-center">
-                  <input
-                    type="number"
-                    min="1"
-                    max={itemToRemove.quantity}
-                    required
-                    value={removeQty === 0 ? '' : removeQty}
-                    onFocus={(e) => e.target.select()}
-                    onChange={(e) => {
-                      const val = e.target.value === '' ? 0 : Number(e.target.value)
-                      setRemoveQty(Math.min(val, itemToRemove.quantity))
-                    }}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm font-bold text-center"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setRemoveQty(1)}
-                    className="px-3 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl whitespace-nowrap hover:bg-slate-300 transition"
-                  >
-                    1 un.
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRemoveQty(itemToRemove.quantity)}
-                    className="px-3 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl whitespace-nowrap hover:bg-slate-300 transition"
-                  >
-                    Todo ({itemToRemove.quantity})
-                  </button>
-                </div>
-              </div>
-
-              {/* Destino / Motivo */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                  Destino o Motivo del Retiro *
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Cantidad a Retirar (Disponible en vehículo: {itemToRemove.quantity})
                 </label>
-                <div className="grid grid-cols-1 gap-2.5">
-                  <label
-                    onClick={() => setReturnToWarehouse(true)}
-                    className={`p-3 rounded-xl border cursor-pointer transition flex items-start gap-3 ${
-                      returnToWarehouse
-                        ? 'bg-blue-50/80 dark:bg-blue-950/40 border-blue-500 dark:border-blue-500 ring-2 ring-blue-500/20'
-                        : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700 hover:border-slate-300'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="returnOption"
-                      checked={returnToWarehouse}
-                      onChange={() => setReturnToWarehouse(true)}
-                      className="mt-0.5 text-blue-600 focus:ring-blue-500"
-                    />
-                    <div>
-                      <p className="font-bold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
-                        <span>🟢</span> Devolver a Bodega Central
-                      </p>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                        El stock ({removeQty} un.) volverá al inventario general de la Bodega.
-                      </p>
-                    </div>
-                  </label>
-
-                  <label
-                    onClick={() => setReturnToWarehouse(false)}
-                    className={`p-3 rounded-xl border cursor-pointer transition flex items-start gap-3 ${
-                      !returnToWarehouse
-                        ? 'bg-rose-50/80 dark:bg-rose-950/40 border-rose-500 dark:border-rose-500 ring-2 ring-rose-500/20'
-                        : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700 hover:border-slate-300'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="returnOption"
-                      checked={!returnToWarehouse}
-                      onChange={() => setReturnToWarehouse(false)}
-                      className="mt-0.5 text-rose-600 focus:ring-rose-500"
-                    />
-                    <div>
-                      <p className="font-bold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
-                        <span>🔴</span> Material Ocupado / Consumido en Terreno (Eliminar de todo)
-                      </p>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                        El material se ocupó en terreno. Se retira de la camioneta y <strong>NO</strong> vuelve a la Bodega.
-                      </p>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              {/* Observaciones */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Observaciones / Notas (Opcional)
-                </label>
-                <textarea
-                  rows={2}
-                  value={removeNotes}
-                  onChange={(e) => setRemoveNotes(e.target.value)}
-                  placeholder="Ej: Utilizado en OT #1234, Devolución por excedente, etc."
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs"
+                <input
+                  type="number"
+                  min="1"
+                  max={itemToRemove.quantity}
+                  required
+                  value={removeQty}
+                  onChange={(e) => setRemoveQty(Math.min(itemToRemove.quantity, Math.max(1, Number(e.target.value))))}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono font-bold"
                 />
               </div>
 
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowRemoveModal(false)}
-                  className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs transition"
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Destino del Ítem
+                </label>
+                <select
+                  value={returnToWarehouse ? 'WAREHOUSE' : 'CONSUMED'}
+                  onChange={(e) => setReturnToWarehouse(e.target.value === 'WAREHOUSE')}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
                 >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmittingRemove}
-                  className={`flex-1 py-2.5 text-white font-bold rounded-xl text-xs transition shadow-md ${
-                    returnToWarehouse
-                      ? 'bg-blue-600 hover:bg-blue-500'
-                      : 'bg-rose-600 hover:bg-rose-500'
-                  }`}
-                >
-                  {isSubmittingRemove
-                    ? 'Procesando...'
-                    : returnToWarehouse
-                    ? `Confirmar Devolución (${removeQty})`
-                    : `Confirmar Consumo (${removeQty})`}
-                </button>
+                  <option value="WAREHOUSE">📥 Devolver a Stock de Bodega</option>
+                  <option value="CONSUMED">🔥 Consumido / Utilizado en terreno (Baja definitiva)</option>
+                </select>
               </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Motivo / Observación
+                </label>
+                <input
+                  type="text"
+                  value={removeNotes}
+                  onChange={(e) => setRemoveNotes(e.target.value)}
+                  placeholder="Ej: Devolución de herramienta o consumido en OT-104"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmittingRemove}
+                className="w-full py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl transition shadow text-xs mt-2"
+              >
+                {isSubmittingRemove ? 'Procesando...' : 'Confirmar Retiro'}
+              </button>
             </form>
           </div>
         </div>
