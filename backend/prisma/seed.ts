@@ -4,29 +4,14 @@ import * as bcrypt from 'bcrypt';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🧹 Limpiando datos existentes de la base de datos...');
-
-  // Clean relations in correct deletion order
-  await prisma.materialRequestItem.deleteMany();
-  await prisma.materialRequest.deleteMany();
-  await prisma.quotationItem.deleteMany();
-  await prisma.quotationRequest.deleteMany();
-  await prisma.vanItem.deleteMany();
-  await prisma.van.deleteMany();
-  await prisma.movement.deleteMany();
-  await prisma.productAudit.deleteMany();
-  await prisma.product.deleteMany();
-  await prisma.appNotification.deleteMany();
-  await prisma.user.deleteMany();
-
-  console.log('🌱 Creando usuarios iniciales requeridos...');
+  console.log('🌱 Verificando usuarios iniciales sin sobrescribir datos existentes...');
 
   const passwordHash = await bcrypt.hash('Prueba123!', 10);
 
   const initialUsers = [
     {
       email: 'danielbelozoo@gmail.com',
-      name: 'Daniel Belozo (Admin)',
+      name: 'Daniel Belozo',
       role: UserRole.SUPER_ADMIN,
     },
     {
@@ -51,14 +36,17 @@ async function main() {
     },
     {
       email: 'daniel.belozo@layerthree.cl',
-      name: 'Daniel Belozo (Bodeguero)',
+      name: 'Daniel Belozo',
       role: UserRole.BODEGUERO,
     },
   ];
 
   for (const u of initialUsers) {
-    const user = await prisma.user.create({
-      data: {
+    // Usamos upsert con update vacío para NO sobrescribir nombres ni roles modificados por el usuario
+    const user = await prisma.user.upsert({
+      where: { email: u.email },
+      update: {}, // No modificar datos si el usuario ya existe
+      create: {
         email: u.email,
         name: u.name,
         role: u.role,
@@ -67,10 +55,10 @@ async function main() {
         allowedModules: JSON.stringify(['inventory', 'projects', 'reports', 'quotations']),
       },
     });
-    console.log(`✅ Usuario creado: ${user.email} [ROL: ${user.role}]`);
+    console.log(`✅ Usuario verificado/preservado: ${user.email} (${user.name})`);
   }
 
-  console.log('✨ Seed completado con éxito. Todas las contraseñas son: Prueba123!');
+  console.log('✨ Seed seguro completado con éxito. Se preservaron los nombres y registros modificados.');
 }
 
 main()

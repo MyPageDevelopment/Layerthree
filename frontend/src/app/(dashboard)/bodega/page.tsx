@@ -7,6 +7,7 @@ import type { Product, Movement, ProductCategory } from '@/types'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import LoadingOverlay from '@/components/LoadingOverlay'
 import SearchableProductSelect from '@/components/SearchableProductSelect'
+import ChileanDatePicker from '@/components/ChileanDatePicker'
 import Toast, { ToastMessage } from '@/components/Toast'
 
 type TabType = 'dashboard' | 'products' | 'movements'
@@ -529,12 +530,13 @@ export default function BodegaPage() {
                 <option value="year">Año</option>
               </select>
               {dateFilter !== 'all' && (
-                <input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs sm:text-sm rounded-lg px-3 py-1.5 focus:outline-none"
-                />
+                <div className="w-40">
+                  <ChileanDatePicker
+                    value={selectedDate}
+                    onChange={(iso) => setSelectedDate(iso)}
+                    placeholder="DD/MM/AAAA"
+                  />
+                </div>
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">

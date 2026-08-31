@@ -4,6 +4,7 @@ import React, { useState } from 'react'
 import JSZip from 'jszip'
 import { saveAs } from 'file-saver'
 import { useToast } from '@/components/ToastNotification'
+import ChileanDatePicker from '@/components/ChileanDatePicker'
 
 export interface QuotationRequest {
   id: string
@@ -256,16 +257,15 @@ export default function BulkDownloadModal({
           </p>
 
           {/* Date range filters */}
-          <div className="grid grid-cols-2 gap-3 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
             <div>
               <label className="block font-bold mb-1 text-slate-700 dark:text-slate-300">
                 Fecha Desde (Opcional)
               </label>
-              <input
-                type="date"
+              <ChileanDatePicker
                 value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white font-semibold"
+                onChange={(iso) => setStartDate(iso)}
+                placeholder="DD/MM/AAAA"
               />
             </div>
 
@@ -273,11 +273,10 @@ export default function BulkDownloadModal({
               <label className="block font-bold mb-1 text-slate-700 dark:text-slate-300">
                 Fecha Hasta (Opcional)
               </label>
-              <input
-                type="date"
+              <ChileanDatePicker
                 value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white font-semibold"
+                onChange={(iso) => setEndDate(iso)}
+                placeholder="DD/MM/AAAA"
               />
             </div>
           </div>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import api from '@/lib/api'
 import SearchableProductSelect from '@/components/SearchableProductSelect'
+import ChileanDatePicker from '@/components/ChileanDatePicker'
 
 interface VanItem {
   id: string
@@ -1519,14 +1520,11 @@ export default function CamionetasPage() {
                   <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     Fecha de Mantención (DD/MM/AAAA) *
                   </label>
-                  <input
-                    type="date"
+                  <ChileanDatePicker
                     required
-                    min="2000-01-01"
-                    max="2100-12-31"
                     value={maintDate}
-                    onChange={(e) => setMaintDate(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono"
+                    onChange={(iso) => setMaintDate(iso)}
+                    placeholder="DD/MM/AAAA (ej: 27/08/2026)"
                   />
                 </div>
 
@@ -1899,29 +1897,23 @@ export default function CamionetasPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">
-                      Fecha Últ. Aceite (DD/MM/AAAA)
+                      Fecha Últ. Aceite
                     </label>
-                    <input
-                      type="date"
-                      min="2000-01-01"
-                      max="2100-12-31"
+                    <ChileanDatePicker
                       value={lastOilChangeDate}
-                      onChange={(e) => setLastOilChangeDate(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono"
+                      onChange={(iso) => setLastOilChangeDate(iso)}
+                      placeholder="DD/MM/AAAA"
                     />
                   </div>
 
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">
-                      Fecha Neumáticos (DD/MM/AAAA)
+                      Fecha Neumáticos
                     </label>
-                    <input
-                      type="date"
-                      min="2000-01-01"
-                      max="2100-12-31"
+                    <ChileanDatePicker
                       value={lastTireChangeDate}
-                      onChange={(e) => setLastTireChangeDate(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono"
+                      onChange={(iso) => setLastTireChangeDate(iso)}
+                      placeholder="DD/MM/AAAA"
                     />
                   </div>
                 </div>
@@ -1931,13 +1923,10 @@ export default function CamionetasPage() {
                     <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">
                       Venc. Rev. Técnica
                     </label>
-                    <input
-                      type="date"
-                      min="2000-01-01"
-                      max="2100-12-31"
+                    <ChileanDatePicker
                       value={technicalReviewDate}
-                      onChange={(e) => setTechnicalReviewDate(e.target.value)}
-                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold font-mono"
+                      onChange={(iso) => setTechnicalReviewDate(iso)}
+                      placeholder="DD/MM/AAAA"
                     />
                   </div>
 
@@ -1945,13 +1934,10 @@ export default function CamionetasPage() {
                     <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">
                       Venc. Seguro SOAP
                     </label>
-                    <input
-                      type="date"
-                      min="2000-01-01"
-                      max="2100-12-31"
+                    <ChileanDatePicker
                       value={insuranceExpiryDate}
-                      onChange={(e) => setInsuranceExpiryDate(e.target.value)}
-                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold font-mono"
+                      onChange={(iso) => setInsuranceExpiryDate(iso)}
+                      placeholder="DD/MM/AAAA"
                     />
                   </div>
 
@@ -1959,13 +1945,10 @@ export default function CamionetasPage() {
                     <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">
                       Venc. Perm. Circulación
                     </label>
-                    <input
-                      type="date"
-                      min="2000-01-01"
-                      max="2100-12-31"
+                    <ChileanDatePicker
                       value={permisoCirculacionDate}
-                      onChange={(e) => setPermisoCirculacionDate(e.target.value)}
-                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold font-mono"
+                      onChange={(iso) => setPermisoCirculacionDate(iso)}
+                      placeholder="DD/MM/AAAA"
                     />
                   </div>
                 </div>

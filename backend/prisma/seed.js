@@ -4,14 +4,14 @@ const bcrypt = require('bcrypt');
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Verificando y sincronizando usuarios iniciales requeridos...');
+  console.log('🌱 Verificando usuarios iniciales sin sobrescribir datos existentes...');
 
   const passwordHash = await bcrypt.hash('Prueba123!', 10);
 
   const initialUsers = [
     {
       email: 'danielbelozoo@gmail.com',
-      name: 'Daniel Belozo (Admin)',
+      name: 'Daniel Belozo',
       role: UserRole.SUPER_ADMIN,
     },
     {
@@ -36,19 +36,16 @@ async function main() {
     },
     {
       email: 'daniel.belozo@layerthree.cl',
-      name: 'Daniel Belozo (Bodeguero)',
+      name: 'Daniel Belozo',
       role: UserRole.BODEGUERO,
     },
   ];
 
   for (const u of initialUsers) {
+    // Usamos upsert con update vacío para NO sobrescribir nombres ni roles modificados por el usuario
     const user = await prisma.user.upsert({
       where: { email: u.email },
-      update: {
-        name: u.name,
-        role: u.role,
-        isActive: true,
-      },
+      update: {}, // No modificar datos si el usuario ya existe
       create: {
         email: u.email,
         name: u.name,
@@ -58,10 +55,10 @@ async function main() {
         allowedModules: JSON.stringify(['inventory', 'projects', 'reports', 'quotations']),
       },
     });
-    console.log(`✅ Usuario verificado/preservado: ${user.email} [ROL: ${user.role}]`);
+    console.log(`✅ Usuario verificado/preservado: ${user.email} (${user.name})`);
   }
 
-  console.log('✨ Seed seguro completado con éxito. Se han preservado los productos y registros existentes.');
+  console.log('✨ Seed seguro completado con éxito. Se preservaron los nombres y registros modificados.');
 }
 
 main()

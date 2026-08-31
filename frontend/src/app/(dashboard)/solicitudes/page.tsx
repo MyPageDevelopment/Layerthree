@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
 import api from '@/lib/api'
 import { getUser } from '@/lib/auth'
@@ -112,11 +112,13 @@ export default function SolicitudesPage() {
   const [projectName, setProjectName] = useState('')
   const [requestNotes, setRequestNotes] = useState('')
   
-  // Excel / CSV Upload State for Request
+  // Multi-format Attachment State for Request (Image / Screenshot / Excel / PDF)
   const [uploadedAttachmentUrl, setUploadedAttachmentUrl] = useState('')
   const [uploadedAttachmentName, setUploadedAttachmentName] = useState('')
   const [isParsingExcel, setIsParsingExcel] = useState(false)
   const [excelParseMessage, setExcelParseMessage] = useState('')
+  const [isDraggingFile, setIsDraggingFile] = useState(false)
+  const [zoomedAttachment, setZoomedAttachment] = useState<{ url: string; title: string } | null>(null)
 
   // Product Search & Filter inside modal
   const [productSearch, setProductSearch] = useState('')
@@ -207,71 +209,174 @@ export default function SolicitudesPage() {
     })
   }
 
-  const handleExcelFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+  const processAttachedFile = async (file: File, customName?: string) => {
+    const fileName = customName || file.name || 'adjunto'
+    const isImage = file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(fileName)
+    const isExcel = /\.(xlsx|xlsm|xls|csv)$/i.test(fileName)
 
-    setIsParsingExcel(true)
-    setExcelParseMessage('')
+    if (isExcel) {
+      setIsParsingExcel(true)
+      setExcelParseMessage('')
 
-    try {
-      const reader = new FileReader()
-      reader.onload = async (event) => {
-        const base64 = event.target?.result as string
-        setUploadedAttachmentUrl(base64)
-        setUploadedAttachmentName(file.name)
+      try {
+        const reader = new FileReader()
+        reader.onload = async (event) => {
+          const base64 = event.target?.result as string
+          setUploadedAttachmentUrl(base64)
+          setUploadedAttachmentName(fileName)
 
-        try {
-          const res = await api.post('/requests/parse-excel', {
-            fileBase64: base64,
-            fileName: file.name,
-          })
+          try {
+            const res = await api.post('/requests/parse-excel', {
+              fileBase64: base64,
+              fileName: fileName,
+            })
 
-          const parsedItems: Array<{
-            productId?: string | null
-            sku?: string | null
-            productName: string
-            requestedQuantity: number
-            unitMeasure?: string
-          }> = res.data?.items || []
+            const parsedItems: Array<{
+              productId?: string | null
+              sku?: string | null
+              productName: string
+              requestedQuantity: number
+              unitMeasure?: string
+            }> = res.data?.items || []
 
-          if (parsedItems.length === 0) {
-            setExcelParseMessage('⚠️ Se adjuntó la planilla, pero no se hallaron filas con cantidad mayor a 0.')
-            return
-          }
-
-          const newQuantities: Record<string, number> = { ...selectedProductQuantities }
-          let matchedCount = 0
-
-          parsedItems.forEach((p) => {
-            if (p.productId) {
-              newQuantities[p.productId] = p.requestedQuantity
-              matchedCount++
-            } else {
-              const localProd = products.find(
-                (lp) => (p.sku && lp.sku.toUpperCase() === p.sku.toUpperCase()) || lp.name.toUpperCase() === p.productName.toUpperCase()
-              )
-              if (localProd) {
-                newQuantities[localProd.id] = p.requestedQuantity
-                matchedCount++
-              }
+            if (parsedItems.length === 0) {
+              setExcelParseMessage(`📄 Se adjuntó la planilla "${fileName}" a la solicitud.`)
+              return
             }
-          })
 
-          setSelectedProductQuantities(newQuantities)
-          setExcelParseMessage(`✅ ¡Éxito! Se interpretaron ${parsedItems.length} ítems desde "${file.name}" (${matchedCount} vinculados al inventario) y se transcribieron a la solicitud.`)
-        } catch (err: any) {
-          setExcelParseMessage(`📄 Se adjuntó "${file.name}" a la solicitud para que el bodeguero pueda revisarla.`)
-        } finally {
-          setIsParsingExcel(false)
+            const newQuantities: Record<string, number> = { ...selectedProductQuantities }
+            let matchedCount = 0
+
+            parsedItems.forEach((p) => {
+              if (p.productId) {
+                newQuantities[p.productId] = p.requestedQuantity
+                matchedCount++
+              } else {
+                const localProd = products.find(
+                  (lp) => (p.sku && lp.sku.toUpperCase() === p.sku.toUpperCase()) || lp.name.toUpperCase() === p.productName.toUpperCase()
+                )
+                if (localProd) {
+                  newQuantities[localProd.id] = p.requestedQuantity
+                  matchedCount++
+                }
+              }
+            })
+
+            setSelectedProductQuantities(newQuantities)
+            setExcelParseMessage(`✅ ¡Éxito! Se interpretaron ${parsedItems.length} ítems desde "${fileName}" (${matchedCount} vinculados al inventario) y se transcribieron a la solicitud.`)
+          } catch (err: any) {
+            setExcelParseMessage(`📄 Se adjuntó "${fileName}" a la solicitud para que el bodeguero pueda revisarla.`)
+          } finally {
+            setIsParsingExcel(false)
+          }
         }
+        reader.readAsDataURL(file)
+      } catch (err: any) {
+        setIsParsingExcel(false)
+        alert('Error al leer la planilla.')
+      }
+      return
+    }
+
+    if (isImage) {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const img = new Image()
+        img.onload = () => {
+          const canvas = document.createElement('canvas')
+          let width = img.width
+          let height = img.height
+          const maxDim = 1600
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width)
+              width = maxDim
+            } else {
+              width = Math.round((width * maxDim) / height)
+              height = maxDim
+            }
+          }
+          canvas.width = width
+          canvas.height = height
+          const ctx = canvas.getContext('2d')
+          ctx?.drawImage(img, 0, 0, width, height)
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.85)
+          setUploadedAttachmentUrl(compressedBase64)
+          setUploadedAttachmentName(fileName)
+          setExcelParseMessage(`🖼️ Imagen / Pantallazo adjuntado con éxito ("${fileName}").`)
+        }
+        img.src = event.target?.result as string
       }
       reader.readAsDataURL(file)
-    } catch (err: any) {
-      setIsParsingExcel(false)
-      alert('Error al leer el archivo seleccionado.')
+      return
+    }
+
+    // Any other file format (PDF, etc.)
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string
+      setUploadedAttachmentUrl(base64)
+      setUploadedAttachmentName(fileName)
+      setExcelParseMessage(`📄 Documento adjuntado con éxito ("${fileName}").`)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleFileUploadChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      processAttachedFile(file)
+    }
+    e.target.value = ''
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingFile(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingFile(false)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingFile(false)
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processAttachedFile(e.dataTransfer.files[0])
     }
   }
+
+  // Handle Clipboard Paste (Ctrl + V for screenshots anywhere when modal is open)
+  const handlePasteEvent = useCallback((e: ClipboardEvent) => {
+    if (!showCreateModal) return
+    const clipboardItems = e.clipboardData?.items
+    if (!clipboardItems) return
+
+    for (let i = 0; i < clipboardItems.length; i++) {
+      const item = clipboardItems[i]
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile()
+        if (file) {
+          e.preventDefault()
+          const now = new Date()
+          const timeStr = `${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}${now.getSeconds().toString().padStart(2, '0')}`
+          processAttachedFile(file, `pantallazo_${timeStr}.png`)
+          break
+        }
+      }
+    }
+  }, [showCreateModal, selectedProductQuantities, products])
+
+  useEffect(() => {
+    const listener = (e: ClipboardEvent) => handlePasteEvent(e)
+    window.addEventListener('paste', listener)
+    return () => window.removeEventListener('paste', listener)
+  }, [handlePasteEvent])
 
   const [isActionLoading, setIsActionLoading] = useState(false)
   const [actionLoadingText, setActionLoadingText] = useState('Procesando...')
@@ -760,14 +865,25 @@ export default function SolicitudesPage() {
 
                     <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex flex-wrap justify-end gap-2">
                       {r.attachmentUrl && (
-                        <a
-                          href={r.attachmentUrl}
-                          download={r.attachmentName || `Planilla_${r.code}.csv`}
-                          className="w-full sm:w-auto py-1.5 px-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 border border-slate-300 dark:border-slate-700"
-                          title="Descargar la planilla Excel/CSV subida originalmente"
-                        >
-                          <span>📥</span> {r.attachmentName || 'Planilla Adjunta'}
-                        </a>
+                        (r.attachmentUrl.startsWith('data:image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(r.attachmentName || '')) ? (
+                          <button
+                            type="button"
+                            onClick={() => setZoomedAttachment({ url: r.attachmentUrl!, title: `Adjunto ${r.code} - ${r.attachmentName || 'Pantallazo'}` })}
+                            className="w-full sm:w-auto py-1.5 px-3 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border border-blue-200 dark:border-blue-800"
+                            title="Ver captura de pantalla / imagen adjunta"
+                          >
+                            <span>🖼️</span> {r.attachmentName?.startsWith('pantallazo') ? 'Ver Pantallazo' : 'Ver Imagen'}
+                          </button>
+                        ) : (
+                          <a
+                            href={r.attachmentUrl}
+                            download={r.attachmentName || `Planilla_${r.code}.csv`}
+                            className="w-full sm:w-auto py-1.5 px-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 border border-slate-300 dark:border-slate-700"
+                            title="Descargar documento / planilla"
+                          >
+                            <span>📥</span> {r.attachmentName || 'Planilla Adjunta'}
+                          </a>
+                        )
                       )}
                       {canDispatch && (
                         <button
@@ -978,14 +1094,25 @@ export default function SolicitudesPage() {
                           </td>
                           <td className="p-4 text-right space-y-1.5">
                             {r.attachmentUrl && (
-                              <a
-                                href={r.attachmentUrl}
-                                download={r.attachmentName || `Planilla_${r.code}.csv`}
-                                className="w-full px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-lg text-xs font-semibold border border-slate-300 dark:border-slate-700 flex items-center justify-center gap-1 transition"
-                                title="Descargar la planilla Excel/CSV subida originalmente"
-                              >
-                                <span>📥</span> {r.attachmentName || 'Planilla Adjunta'}
-                              </a>
+                              (r.attachmentUrl.startsWith('data:image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(r.attachmentName || '')) ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setZoomedAttachment({ url: r.attachmentUrl!, title: `Adjunto ${r.code} - ${r.attachmentName || 'Pantallazo'}` })}
+                                  className="w-full px-3 py-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-semibold border border-blue-200 dark:border-blue-800 flex items-center justify-center gap-1.5 transition"
+                                  title="Ver captura de pantalla / imagen adjunta"
+                                >
+                                  <span>🖼️</span> {r.attachmentName?.startsWith('pantallazo') ? 'Ver Pantallazo' : 'Ver Imagen'}
+                                </button>
+                              ) : (
+                                <a
+                                  href={r.attachmentUrl}
+                                  download={r.attachmentName || `Planilla_${r.code}.csv`}
+                                  className="w-full px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-lg text-xs font-semibold border border-slate-300 dark:border-slate-700 flex items-center justify-center gap-1 transition"
+                                  title="Descargar documento / planilla"
+                                >
+                                  <span>📥</span> {r.attachmentName || 'Planilla Adjunta'}
+                                </a>
+                              )
                             )}
                             {canDispatch && (
                               <button
@@ -1076,11 +1203,20 @@ export default function SolicitudesPage() {
                 />
               </div>
 
-              {/* Option to Upload Excel / CSV Spreadsheet */}
-              <div className="bg-blue-50/60 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 p-4 rounded-xl space-y-2">
+              {/* Interactive Drag & Drop & Screenshot Paste Box */}
+              <div
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={`p-4 rounded-2xl border-2 transition-all space-y-3 ${
+                  isDraggingFile
+                    ? 'border-blue-500 bg-blue-50/80 dark:bg-blue-950/60 ring-4 ring-blue-500/20 scale-[1.01]'
+                    : 'border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/40 hover:border-blue-400 dark:hover:border-blue-600'
+                }`}
+              >
                 <div className="flex justify-between items-center">
-                  <label className="block font-bold text-xs uppercase tracking-wider text-blue-800 dark:text-blue-300 flex items-center gap-1.5">
-                    <span>📄</span> Cargar Planilla Excel / CSV de Materiales (.xlsx, .xlsm, .csv)
+                  <label className="block font-bold text-xs uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <span>📎</span> Adjuntar Comprobante, Planilla o Pantallazo
                   </label>
                   {uploadedAttachmentName && (
                     <button
@@ -1090,37 +1226,79 @@ export default function SolicitudesPage() {
                         setUploadedAttachmentName('')
                         setExcelParseMessage('')
                       }}
-                      className="text-xs text-red-500 hover:underline font-semibold"
+                      className="text-xs text-red-500 hover:underline font-semibold flex items-center gap-1"
                     >
-                      Remover archivo
+                      <span>🗑️</span> Remover adjunto
                     </button>
                   )}
                 </div>
-                
-                <p className="text-xs text-slate-600 dark:text-slate-400">
-                  Si el Jefe de Proyecto rellenó una planilla Excel/CSV (ej: <code>NuevaPlanilla2.csv</code>), súbela aquí. El sistema la interpretará automáticamente y transcribirá los materiales solicitados.
-                </p>
 
-                <div className="flex flex-wrap items-center gap-3">
-                  <label className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded-xl cursor-pointer shadow transition">
-                    <span>📂 {isParsingExcel ? 'Analizando...' : 'Seleccionar Planilla Excel / CSV'}</span>
+                {/* Drop & Paste Instructions */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                  <div className="space-y-1 text-center sm:text-left">
+                    <p className="font-semibold text-slate-800 dark:text-slate-200 flex items-center justify-center sm:justify-start gap-1.5">
+                      <span>📥</span> Arrastra archivos aquí o pega un pantallazo con <kbd className="px-1.5 py-0.5 bg-slate-200 dark:bg-slate-700 rounded font-mono text-[11px] font-bold">Ctrl + V</kbd>
+                    </p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Soporta imágenes (PNG, JPG), planillas Excel/CSV con lectura automática, y documentos PDF.
+                    </p>
+                  </div>
+
+                  <label className="shrink-0 flex items-center gap-2 px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded-xl cursor-pointer shadow transition active:scale-95">
+                    <span>📁 Seleccionar Archivo</span>
                     <input
                       type="file"
-                      accept=".xlsx,.xlsm,.xls,.csv"
-                      onChange={handleExcelFileUpload}
+                      accept="image/*,.pdf,.xlsx,.xlsm,.xls,.csv,.doc,.docx"
+                      onChange={handleFileUploadChange}
                       className="hidden"
                       disabled={isParsingExcel}
                     />
                   </label>
-                  {uploadedAttachmentName && (
-                    <span className="text-xs font-mono font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800">
-                      📎 {uploadedAttachmentName}
-                    </span>
-                  )}
                 </div>
 
+                {/* File Attachment Preview Card */}
+                {uploadedAttachmentUrl && (
+                  <div className="mt-2 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl flex items-center justify-between gap-3 shadow-sm">
+                    <div className="flex items-center gap-3 min-w-0">
+                      {uploadedAttachmentUrl.startsWith('data:image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(uploadedAttachmentName) ? (
+                        <button
+                          type="button"
+                          onClick={() => setZoomedAttachment({ url: uploadedAttachmentUrl, title: uploadedAttachmentName })}
+                          className="group relative w-12 h-12 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 shrink-0 hover:ring-2 hover:ring-blue-500 transition"
+                          title="Hacer clic para ver en tamaño completo"
+                        >
+                          <img src={uploadedAttachmentUrl} alt={uploadedAttachmentName} className="w-full h-full object-cover" />
+                          <span className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-[10px]">🔍</span>
+                        </button>
+                      ) : (
+                        <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-950/80 text-blue-600 flex items-center justify-center text-lg shrink-0">
+                          {/\.(xlsx|xls|csv)$/i.test(uploadedAttachmentName) ? '📊' : '📄'}
+                        </div>
+                      )}
+                      <div className="truncate">
+                        <p className="font-semibold text-xs text-slate-800 dark:text-slate-200 truncate">{uploadedAttachmentName}</p>
+                        <p className="text-[10px] text-slate-400 font-mono">
+                          {uploadedAttachmentUrl.startsWith('data:image/') ? '🖼️ Imagen / Pantallazo cargado' : '📎 Documento adjunto'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {uploadedAttachmentUrl.startsWith('data:image/') && (
+                        <button
+                          type="button"
+                          onClick={() => setZoomedAttachment({ url: uploadedAttachmentUrl, title: uploadedAttachmentName })}
+                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold"
+                        >
+                          🔍 Ver
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {excelParseMessage && (
-                  <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 p-2 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                  <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800">
                     {excelParseMessage}
                   </p>
                 )}
@@ -1760,6 +1938,40 @@ export default function SolicitudesPage() {
         onConfirm={handleConfirmDeleteRequest}
         onCancel={() => setDeleteConfirmRequestId(null)}
       />
+
+      {/* MODAL ZOOM / LIGHTBOX DE IMAGEN O PANTALLAZO ADJUNTO */}
+      {zoomedAttachment && (
+        <div
+          className="fixed inset-0 bg-black/90 z-[60] flex flex-col items-center justify-center p-4 backdrop-blur-md"
+          onClick={() => setZoomedAttachment(null)}
+        >
+          <div className="max-w-4xl max-h-[85vh] w-full flex flex-col items-center relative" onClick={(e) => e.stopPropagation()}>
+            <div className="w-full flex justify-between items-center text-white pb-3">
+              <span className="font-bold text-sm truncate">{zoomedAttachment.title}</span>
+              <div className="flex items-center gap-2">
+                <a
+                  href={zoomedAttachment.url}
+                  download={zoomedAttachment.title.replace(/[^a-zA-Z0-9._-]/g, '_')}
+                  className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs transition flex items-center gap-1"
+                >
+                  <span>📥</span> Descargar
+                </a>
+                <button
+                  onClick={() => setZoomedAttachment(null)}
+                  className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white font-bold rounded-lg text-xs transition"
+                >
+                  Cerrar ✕
+                </button>
+              </div>
+            </div>
+            <img
+              src={zoomedAttachment.url}
+              alt={zoomedAttachment.title}
+              className="max-w-full max-h-[75vh] object-contain rounded-2xl shadow-2xl border border-white/10"
+            />
+          </div>
+        </div>
+      )}
 
       <LoadingOverlay isOpen={isActionLoading} message={actionLoadingText} />
     </div>
