@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useSearchParams } from 'next/navigation'
 import api from '@/lib/api'
 import { getUser } from '@/lib/auth'
@@ -107,6 +107,12 @@ export default function SolicitudesPage() {
   const [loading, setLoading] = useState(true)
   const [currentUser, setCurrentUser] = useState<User | null>(null)
 
+  // View Mode & Filtering States
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards')
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'DISPATCHED' | 'REJECTED'>('ALL')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [expandedCardItems, setExpandedCardItems] = useState<Record<string, boolean>>({})
+
   // Create Request Modal State
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [projectName, setProjectName] = useState('')
@@ -142,7 +148,7 @@ export default function SolicitudesPage() {
   const [selectedVanId, setSelectedVanId] = useState<string>('')
   const [itemChecks, setItemChecks] = useState<Record<string, { isChecked: boolean; quantity: number; serialNumber?: string }>>({})
 
-  // Items Dropdown state for Desktop & Mobile
+  // Items Dropdown state for Table View
   const [openItemsDropdownId, setOpenItemsDropdownId] = useState<string | null>(null)
 
   // Supplier Quote Modal State (For Bodeguero for missing items)
@@ -159,8 +165,21 @@ export default function SolicitudesPage() {
 
   useEffect(() => {
     setCurrentUser(getUser())
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('layerthree_solicitudes_view_mode')
+      if (saved === 'cards' || saved === 'table') {
+        setViewMode(saved)
+      }
+    }
     fetchData()
   }, [])
+
+  const handleToggleView = (mode: 'cards' | 'table') => {
+    setViewMode(mode)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('layerthree_solicitudes_view_mode', mode)
+    }
+  }
 
   const fetchData = async () => {
     setLoading(true)
@@ -724,6 +743,34 @@ export default function SolicitudesPage() {
 
   const categories: string[] = ['TODOS', 'EQUIPOS', 'RED', 'FIBRA_OPTICA', 'ELECTRICIDAD', 'CANALIZACION', 'INSUMOS']
 
+  // Filtered requests by Status tab and Search query
+  const filteredRequests = useMemo(() => {
+    return requests.filter((r) => {
+      // Status filter
+      if (statusFilter !== 'ALL' && r.status !== statusFilter) {
+        return false
+      }
+
+      // Search query
+      if (searchTerm.trim()) {
+        const query = searchTerm.toLowerCase().trim()
+        const matchCode = r.code.toLowerCase().includes(query)
+        const matchProject = (r.projectName || '').toLowerCase().includes(query)
+        const matchRequester = (r.requestedBy?.name || '').toLowerCase().includes(query) || (r.requestedBy?.email || '').toLowerCase().includes(query)
+        const matchRecipient = (r.recipientName || '').toLowerCase().includes(query)
+        const matchNotes = (r.notes || '').toLowerCase().includes(query)
+        const matchItems = (r.items || []).some(
+          (i) =>
+            (i.product?.name || i.productName || '').toLowerCase().includes(query) ||
+            (i.product?.sku || i.sku || '').toLowerCase().includes(query)
+        )
+        return matchCode || matchProject || matchRequester || matchRecipient || matchNotes || matchItems
+      }
+
+      return true
+    })
+  }, [requests, statusFilter, searchTerm])
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -733,7 +780,7 @@ export default function SolicitudesPage() {
             <span>📑</span> Solicitudes y Pedidos de Materiales
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-            Flujo de pedido por proyecto, comprobante fotográfico de entrega y trazabilidad.
+            Flujo de pedido por proyecto, comprobante fotográfico de entrega y trazabilidad de despacho.
           </p>
         </div>
 
@@ -747,429 +794,575 @@ export default function SolicitudesPage() {
         )}
       </div>
 
-      {/* Requests Container */}
+      {/* Top Toolbar: Status Filter Tabs, Search Bar and View Mode Switcher */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-4 shadow-sm">
+        {/* Status Filter Tabs */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            onClick={() => setStatusFilter('ALL')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+              statusFilter === 'ALL'
+                ? 'bg-blue-600 text-white shadow'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            Todas ({requests.length})
+          </button>
+          <button
+            onClick={() => setStatusFilter('PENDING')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 ${
+              statusFilter === 'PENDING'
+                ? 'bg-amber-600 text-white shadow'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <span>⏳</span> Pendientes ({requests.filter((r) => r.status === 'PENDING').length})
+          </button>
+          <button
+            onClick={() => setStatusFilter('DISPATCHED')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 ${
+              statusFilter === 'DISPATCHED'
+                ? 'bg-emerald-600 text-white shadow'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <span>✅</span> Despachadas ({requests.filter((r) => r.status === 'DISPATCHED').length})
+          </button>
+          <button
+            onClick={() => setStatusFilter('REJECTED')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 ${
+              statusFilter === 'REJECTED'
+                ? 'bg-rose-600 text-white shadow'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <span>🚫</span> Rechazadas ({requests.filter((r) => r.status === 'REJECTED').length})
+          </button>
+        </div>
+
+        {/* Search Input & View Switcher (Tarjetas vs Tabla) */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <div className="relative flex-1 sm:w-64">
+            <input
+              type="text"
+              placeholder="🔍 Buscar solicitud, proyecto, ítem..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-3 pr-8 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs sm:text-sm rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* View Mode Switcher */}
+          <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700 shrink-0">
+            <button
+              type="button"
+              onClick={() => handleToggleView('cards')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                viewMode === 'cards'
+                  ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+              title="Vista tipo Tarjeta (estilo Cotizaciones)"
+            >
+              <span>🗂️</span> Tarjetas
+            </button>
+            <button
+              type="button"
+              onClick={() => handleToggleView('table')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                viewMode === 'table'
+                  ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+              title="Vista tipo Tabla / Lista"
+            >
+              <span>📋</span> Tabla
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content Area */}
       <div className="space-y-4">
         {loading ? (
-          <div className="p-12 text-center text-slate-500">Cargando solicitudes...</div>
-        ) : requests.length === 0 ? (
+          <div className="p-12 text-center text-slate-500 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl">
+            Cargando solicitudes...
+          </div>
+        ) : filteredRequests.length === 0 ? (
           <div className="p-12 text-center text-slate-400 space-y-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl">
             <span className="text-4xl block mb-2">📑</span>
-            <p className="font-semibold text-lg">No hay solicitudes registradas</p>
-            <p className="text-sm">Las solicitudes de materiales creadas por los Jefes de Proyecto aparecerán aquí.</p>
+            <p className="font-semibold text-lg">No se encontraron solicitudes</p>
+            <p className="text-sm">
+              {searchTerm || statusFilter !== 'ALL'
+                ? 'Prueba modificando los filtros o el término de búsqueda.'
+                : 'Las solicitudes de materiales creadas por los Jefes de Proyecto aparecerán aquí.'}
+            </p>
           </div>
-        ) : (
-          <>
-            {/* MOBILE CARDS VIEW (For small screens) */}
-            <div className="block md:hidden space-y-3">
-              {requests.map((r) => {
-                const isHighlighted = highlightId === r.id
-                return (
-                  <div
-                    key={r.id}
-                    className={`p-4 rounded-2xl border space-y-3 shadow-sm transition-all ${
-                      isHighlighted
-                        ? 'bg-blue-100/90 dark:bg-blue-950/90 border-blue-500 ring-2 ring-blue-500'
-                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
-                    }`}
-                  >
-                    <div className="flex justify-between items-center">
-                      <span className="font-mono font-bold text-sm text-blue-600 dark:text-blue-400">
+        ) : viewMode === 'cards' ? (
+          /* ============================================================
+             VISTA TARJETAS (CARD GRID - SIMILAR A COTIZACIONES)
+             ============================================================ */
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            {filteredRequests.map((r) => {
+              const isExpanded = !!expandedCardItems[r.id]
+              const hasMissingStock = r.items.some(
+                (item) => !isToolItem(item) && (item.product?.stock ?? 0) < item.requestedQuantity
+              )
+              const isHighlighted = highlightId === r.id
+              const totalUnits = r.items.reduce((sum, i) => sum + (i.requestedQuantity || 0), 0)
+
+              return (
+                <div
+                  key={r.id}
+                  className={`bg-white dark:bg-slate-900 border rounded-2xl p-5 shadow-sm hover:shadow-md transition flex flex-col justify-between space-y-4 ${
+                    isHighlighted
+                      ? 'border-blue-500 ring-2 ring-blue-500 bg-blue-50/10 dark:bg-blue-950/20'
+                      : 'border-slate-200 dark:border-slate-800'
+                  }`}
+                >
+                  <div className="space-y-3">
+                    {/* Top: Code & Status Badge */}
+                    <div className="flex justify-between items-start">
+                      <span className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-2.5 py-1 rounded-lg border border-blue-200 dark:border-blue-800">
                         {r.code}
                       </span>
                       {r.status === 'PENDING' ? (
-                        <span className="px-2 py-0.5 text-[10px] rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 font-bold border border-amber-300">
-                          ⏳ Pendiente
+                        <span className="px-2.5 py-0.5 text-[11px] rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 font-bold border border-amber-300 dark:border-amber-800 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                          ⏳ Pendiente Despacho
                         </span>
                       ) : r.status === 'REJECTED' ? (
-                        <span className="px-2 py-0.5 text-[10px] rounded-full bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 font-bold border border-rose-300">
-                          🚫 Rechazado / Cancelado
+                        <span className="px-2.5 py-0.5 text-[11px] rounded-full bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 font-bold border border-rose-300 dark:border-rose-800">
+                          🚫 Rechazada
                         </span>
                       ) : (
-                        <span className="px-2 py-0.5 text-[10px] rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 font-bold border border-emerald-300">
-                          ✅ Despachado
+                        <span className="px-2.5 py-0.5 text-[11px] rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-bold border border-emerald-300 dark:border-emerald-800 flex items-center gap-1">
+                          <span>✓</span> Despachada
                         </span>
                       )}
                     </div>
 
+                    {/* Project Title */}
                     <div>
-                      <p className="font-bold text-sm text-slate-900 dark:text-white">{r.projectName || 'Proyecto General'}</p>
-                      <p className="text-[11px] text-slate-400">👤 Solicitante: <span className="font-semibold text-slate-700 dark:text-slate-300">{r.requestedBy?.name || r.requestedBy?.email}</span></p>
-                      {r.assignedTo && (
-                        <p className="text-[11px] text-slate-400">📦 Despachado por: <span className="font-semibold text-emerald-600 dark:text-emerald-400">{r.assignedTo.name || r.assignedTo.email}</span></p>
-                      )}
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Proyecto Asignado
+                      </span>
+                      <h3 className="font-extrabold text-base text-slate-900 dark:text-white mt-0.5">
+                        🏗️ {r.projectName || 'Proyecto General'}
+                      </h3>
                     </div>
 
-                    <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
-                      <p className="font-semibold text-[11px] text-slate-500 uppercase">Ítems Requeridos:</p>
-                      {r.items.length === 0 ? (
-                        <div className="bg-amber-50 dark:bg-amber-950/40 p-2 rounded-lg border border-amber-200 dark:border-amber-800/60 text-xs text-amber-800 dark:text-amber-300 font-medium flex items-center gap-1.5">
-                          <span>📷</span>
-                          <span>Solicitud con foto/planilla adjunta (sin productos en lista)</span>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <button
-                            type="button"
-                            onClick={() => setOpenItemsDropdownId(openItemsDropdownId === r.id ? null : r.id)}
-                            className="w-full flex items-center justify-between px-3 py-2 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800/80 rounded-xl font-semibold text-slate-700 dark:text-slate-200 transition border border-slate-200 dark:border-slate-700 shadow-sm"
-                          >
-                            <span className="flex items-center gap-2">
-                              <span>📦</span>
-                              <span>{r.items.length} {r.items.length === 1 ? 'Ítem Requerido' : 'Ítems Requeridos'}</span>
-                              {r.status === 'PENDING' && r.items.some(i => !isToolItem(i) && (i.product?.stock ?? 0) < i.requestedQuantity) && (
-                                <span className="px-1.5 py-0.5 text-[9px] bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 font-bold rounded">
-                                  Sin Stock
-                                </span>
-                              )}
-                            </span>
-                            <span className="text-slate-400 text-xs">{openItemsDropdownId === r.id ? '▲ Ocultar' : '▼ Ver Lista'}</span>
-                          </button>
+                    {/* Info Card Box (Similar to Cotizaciones) */}
+                    <div className="text-xs space-y-2 bg-slate-50 dark:bg-slate-800/50 p-3.5 rounded-xl border border-slate-100 dark:border-slate-800">
+                      {/* Requester & Date */}
+                      <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                        <span className="flex items-center gap-1">
+                          <span>👤</span> <strong className="text-slate-800 dark:text-slate-200">{r.requestedBy?.name || r.requestedBy?.email || 'Usuario'}</strong>
+                        </span>
+                        <span className="font-mono text-[11px] text-slate-500">
+                          {new Date(r.createdAt).toLocaleDateString('es-CL')}
+                        </span>
+                      </div>
 
-                          {openItemsDropdownId === r.id && (
-                            <div className="p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 space-y-1.5 animate-fadeIn shadow-inner">
-                              {r.items.map((item) => {
-                                const isUtp = (item.product?.name || item.productName || '').toUpperCase().includes('UTP') || (item.product?.sku || item.sku || '').toUpperCase().includes('UTP')
-                                const unitStr = isUtp ? 'MTS' : (item.unitMeasure || item.product?.unit || 'UN')
-                                const isTool = isToolItem(item)
-                                const currentStock = item.product?.stock ?? 0
-                                const hasEnoughStock = isTool || currentStock >= item.requestedQuantity
+                      {/* Items counter */}
+                      <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
+                        <span className="text-slate-500 dark:text-slate-400">📦 Total Requerido:</span>
+                        <span className="font-bold text-slate-800 dark:text-slate-200">
+                          {r.items.length} {r.items.length === 1 ? 'ítem' : 'ítems'} ({totalUnits} unid.)
+                        </span>
+                      </div>
 
-                                return (
-                                  <div key={item.id} className="flex items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800/50 pb-1 last:border-0">
-                                    <span className={item.isChecked ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-300 font-medium'}>
-                                      • {item.product?.name || item.productName} (x{item.requestedQuantity} {unitStr})
-                                    </span>
-                                    <span className={`px-2 py-0.5 text-[10px] rounded font-semibold ${
-                                      isTool
-                                        ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border border-purple-300'
-                                        : hasEnoughStock
-                                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                                          : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
-                                    }`}>
-                                      {isTool ? 'Herramienta (Camioneta/Terreno)' : hasEnoughStock ? `Stock: ${currentStock}` : `Sin Stock (${currentStock})`}
-                                    </span>
-                                  </div>
-                                )
-                              })}
+                      {/* Dispatch Delivery Info */}
+                      {r.recipientName && (
+                        <div className="pt-1 border-t border-slate-200/60 dark:border-slate-700/60 space-y-1">
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-500">Receptor:</span>
+                            <span className="font-bold text-slate-800 dark:text-slate-200">👤 {r.recipientName}</span>
+                          </div>
+                          {r.van && (
+                            <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400 font-semibold text-[11px]">
+                              <span>Camioneta:</span>
+                              <span>🛻 {r.van.plate} ({r.van.name})</span>
                             </div>
                           )}
                         </div>
                       )}
+
+                      {/* Attachment file preview button */}
+                      {r.attachmentUrl && (
+                        <div className="pt-1.5 border-t border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between">
+                          <span className="text-slate-500">Archivo Adjunto:</span>
+                          {r.attachmentUrl.startsWith('data:image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(r.attachmentName || '') ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setZoomedAttachment({
+                                  url: r.attachmentUrl!,
+                                  title: `Adjunto ${r.code} - ${r.attachmentName || 'Pantallazo'}`,
+                                })
+                              }
+                              className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 rounded-lg font-semibold text-[11px] flex items-center gap-1 border border-blue-200 dark:border-blue-800 transition shadow-sm"
+                            >
+                              <span>🖼️</span> {r.attachmentName?.startsWith('pantallazo') ? 'Ver Pantallazo' : 'Ver Imagen'}
+                            </button>
+                          ) : (
+                            <a
+                              href={r.attachmentUrl}
+                              download={r.attachmentName || `Planilla_${r.code}.csv`}
+                              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg font-semibold text-[11px] flex items-center gap-1 border border-slate-300 dark:border-slate-700 transition shadow-sm"
+                            >
+                              <span>📥</span> {r.attachmentName || 'Descargar Planilla'}
+                            </a>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Notes snippet */}
+                      {r.notes && (
+                        <div className="pt-1 border-t border-slate-200/60 dark:border-slate-700/60 text-[11px] text-slate-600 dark:text-slate-400 italic">
+                          "{r.notes}"
+                        </div>
+                      )}
                     </div>
 
-                    {r.recipientName && (
-                      <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                        <span>🛻</span> Receptor: {r.recipientName} {r.van ? <span className="text-emerald-600 font-bold">[{r.van.plate}]</span> : ''}
-                      </p>
-                    )}
+                    {/* Collapsible Items Accordion */}
+                    <div className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedCardItems((prev) => ({
+                            ...prev,
+                            [r.id]: !prev[r.id],
+                          }))
+                        }
+                        className="w-full flex items-center justify-between px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 transition"
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <span>📦</span> Ver {r.items.length} {r.items.length === 1 ? 'material' : 'materiales'} solicitados
+                          {r.status === 'PENDING' && hasMissingStock && (
+                            <span className="px-1.5 py-0.2 bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 font-bold rounded text-[9px]">
+                              Sin Stock
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-slate-400 text-xs font-mono">{isExpanded ? '▲ Ocultar' : '▼ Expandir'}</span>
+                      </button>
 
-                    <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex flex-wrap justify-end gap-2">
-                      {r.attachmentUrl && (
-                        (r.attachmentUrl.startsWith('data:image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(r.attachmentName || '')) ? (
-                          <button
-                            type="button"
-                            onClick={() => setZoomedAttachment({ url: r.attachmentUrl!, title: `Adjunto ${r.code} - ${r.attachmentName || 'Pantallazo'}` })}
-                            className="w-full sm:w-auto py-1.5 px-3 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border border-blue-200 dark:border-blue-800"
-                            title="Ver captura de pantalla / imagen adjunta"
-                          >
-                            <span>🖼️</span> {r.attachmentName?.startsWith('pantallazo') ? 'Ver Pantallazo' : 'Ver Imagen'}
-                          </button>
-                        ) : (
-                          <a
-                            href={r.attachmentUrl}
-                            download={r.attachmentName || `Planilla_${r.code}.csv`}
-                            className="w-full sm:w-auto py-1.5 px-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 border border-slate-300 dark:border-slate-700"
-                            title="Descargar documento / planilla"
-                          >
-                            <span>📥</span> {r.attachmentName || 'Planilla Adjunta'}
-                          </a>
-                        )
+                      {isExpanded && (
+                        <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                          {r.items.length === 0 ? (
+                            <p className="text-xs text-slate-400 italic p-2 text-center">Solicitud sin ítems en lista (adjunto adjuntado)</p>
+                          ) : (
+                            r.items.map((item) => {
+                              const isUtp =
+                                (item.product?.name || item.productName || '').toUpperCase().includes('UTP') ||
+                                (item.product?.sku || item.sku || '').toUpperCase().includes('UTP')
+                              const unitStr = isUtp ? 'MTS' : item.unitMeasure || item.product?.unit || 'UN'
+                              const isTool = isToolItem(item)
+                              const currentStock = item.product?.stock ?? 0
+                              const hasEnoughStock = isTool || currentStock >= item.requestedQuantity
+
+                              return (
+                                <div
+                                  key={item.id}
+                                  className="bg-slate-50 dark:bg-slate-800/80 p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs flex justify-between items-center gap-2"
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className={`font-semibold ${item.isChecked ? 'line-through text-slate-400' : 'text-slate-800 dark:text-slate-200'} truncate`}>
+                                        {item.product?.name || item.productName}
+                                      </span>
+                                      {isTool && (
+                                        <span className="px-1.5 py-0.2 bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 rounded text-[9px] font-bold">
+                                          HERRAMIENTA
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="text-[10px] font-mono text-slate-400">
+                                      SKU: {item.product?.sku || item.sku || 'N/A'}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-bold rounded text-[11px]">
+                                      {item.requestedQuantity} {unitStr}
+                                    </span>
+                                    {r.status === 'PENDING' && (
+                                      <span
+                                        className={`text-[10px] font-semibold ${
+                                          isTool
+                                            ? 'text-purple-600 dark:text-purple-400'
+                                            : hasEnoughStock
+                                            ? 'text-emerald-600 dark:text-emerald-400'
+                                            : 'text-rose-600 dark:text-rose-400'
+                                        }`}
+                                      >
+                                        {isTool ? '(Camioneta)' : hasEnoughStock ? `(Stock: ${currentStock})` : `(Sin Stock: ${currentStock})`}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              )
+                            })
+                          )}
+                        </div>
                       )}
-                      {canDispatch && (
-                        <button
-                          onClick={() => handleOpenSupplierQuoteModal(r)}
-                          className="w-full sm:w-auto py-1.5 px-3 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-semibold shadow flex items-center justify-center gap-1"
-                          title="Redactar correo de cotización a proveedor para materiales"
-                        >
-                          <span>📧</span> Cotizar a Proveedor
-                        </button>
-                      )}
-                      {r.status === 'PENDING' && canDispatch && (
+                    </div>
+                  </div>
+
+                  {/* Card Actions Footer */}
+                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
+                    {canDispatch && r.status === 'PENDING' && (
+                      <div className="grid grid-cols-2 gap-2">
                         <button
                           onClick={() => handleOpenDispatchModal(r)}
-                          className="w-full sm:w-auto py-1.5 px-3 bg-emerald-600 text-white rounded-xl text-xs font-bold shadow"
+                          className="py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow transition active:scale-95 flex items-center justify-center gap-1.5"
                         >
-                          Check & Despachar
+                          <span>📦</span> Despachar
                         </button>
-                      )}
-                      {r.status === 'PENDING' && canDispatch && (
+                        <button
+                          onClick={() => handleOpenSupplierQuoteModal(r)}
+                          className={`py-2 px-3 rounded-xl text-xs font-bold shadow transition flex items-center justify-center gap-1.5 ${
+                            hasMissingStock
+                              ? 'bg-amber-600 hover:bg-amber-500 text-white animate-pulse'
+                              : 'bg-slate-700 hover:bg-slate-600 text-white'
+                          }`}
+                          title="Redactar correo/documento de cotización a proveedor"
+                        >
+                          <span>📧</span> Cotizar
+                        </button>
+                      </div>
+                    )}
+
+                    {canDispatch && r.status === 'DISPATCHED' && (
+                      <div className="grid grid-cols-2 gap-2">
+                        {r.photoUrl ? (
+                          <button
+                            onClick={() => setViewPhotoRequest(r)}
+                            className="py-2 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow transition active:scale-95 flex items-center justify-center gap-1.5"
+                          >
+                            <span>📷</span> Ver Foto
+                          </button>
+                        ) : (
+                          <span className="py-2 px-3 bg-slate-100 dark:bg-slate-800 text-slate-400 rounded-xl text-xs font-semibold text-center flex items-center justify-center">
+                            Sin Foto
+                          </span>
+                        )}
+                        <button
+                          onClick={() => handleOpenSupplierQuoteModal(r)}
+                          className="py-2 px-3 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-xs font-bold shadow transition flex items-center justify-center gap-1.5"
+                        >
+                          <span>📧</span> Cotizar
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between gap-2">
+                      {canDispatch && r.status === 'PENDING' && (
                         <button
                           onClick={() => handleRejectRequest(r.id)}
-                          className="w-full sm:w-auto py-1.5 px-3 bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 rounded-xl text-xs font-bold border border-amber-300 dark:border-amber-800 flex items-center justify-center gap-1 transition"
-                          title="Rechazar o cancelar esta solicitud de materiales"
+                          className="flex-1 py-1.5 px-2 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 rounded-lg text-xs font-bold border border-amber-300 dark:border-amber-800 transition text-center"
                         >
-                          <span>🚫</span> Rechazar
+                          🚫 Rechazar
                         </button>
                       )}
+
+                      {!canDispatch && r.status === 'DISPATCHED' && r.photoUrl && (
+                        <button
+                          onClick={() => setViewPhotoRequest(r)}
+                          className="flex-1 py-1.5 px-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold shadow transition text-center"
+                        >
+                          📷 Ver Foto Entrega
+                        </button>
+                      )}
+
                       {(canCreateRequest || canDispatch) && (
                         <button
                           onClick={() => setDeleteConfirmRequestId(r.id)}
-                          className="w-full sm:w-auto py-1.5 px-3 bg-rose-100 hover:bg-rose-200 dark:bg-rose-950/80 text-rose-600 font-bold rounded-xl text-xs flex items-center justify-center gap-1 border border-rose-300 dark:border-rose-800 transition"
-                          title="Eliminar esta solicitud"
+                          className="py-1.5 px-2.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg text-xs font-bold transition flex items-center gap-1 ml-auto"
+                          title="Eliminar solicitud"
                         >
                           <span>🗑️</span> Eliminar
                         </button>
                       )}
-                      {r.status === 'DISPATCHED' && r.photoUrl && (
-                        <button
-                          onClick={() => setViewPhotoRequest(r)}
-                          className="w-full sm:w-auto py-1.5 px-3 bg-blue-600 text-white rounded-xl text-xs font-bold shadow flex items-center justify-center gap-1"
-                        >
-                          <span>📷</span> Ver Foto
-                        </button>
-                      )}
                     </div>
                   </div>
-                )
-              })}
-            </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          /* ============================================================
+             VISTA TABLA (DENSE TABLE VIEW)
+             ============================================================ */
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 text-slate-400 text-xs uppercase font-mono">
+                    <th className="p-4">Código / Fecha</th>
+                    <th className="p-4">Proyecto & Solicitante</th>
+                    <th className="p-4">Ítems Solicitados</th>
+                    <th className="p-4">Estado</th>
+                    <th className="p-4">Receptor / Camioneta</th>
+                    <th className="p-4 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {filteredRequests.map((r) => {
+                    const hasMissingStock = r.items.some((item) => !isToolItem(item) && (item.product?.stock ?? 0) < item.requestedQuantity)
+                    const isHighlighted = highlightId === r.id
 
-            {/* DESKTOP TABLE VIEW */}
-            <div className="hidden md:block bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-sm">
-                  <thead>
-                    <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                      <th className="p-4 font-semibold">Código</th>
-                      <th className="p-4 font-semibold">Proyecto</th>
-                      <th className="p-4 font-semibold">Solicitado Por</th>
-                      <th className="p-4 font-semibold">Despachado Por (Bodega)</th>
-                      <th className="p-4 font-semibold">Ítems Requeridos</th>
-                      <th className="p-4 font-semibold">Estado</th>
-                      <th className="p-4 font-semibold">Receptor / Camioneta</th>
-                      <th className="p-4 font-semibold text-right">Acciones & Cotización</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                    {requests.map((r) => {
-                      const isHighlighted = highlightId === r.id
-                      const hasMissingStock = r.status === 'PENDING' && r.items.some(i => !isToolItem(i) && (i.product?.stock ?? 0) < i.requestedQuantity)
+                    return (
+                      <tr
+                        key={r.id}
+                        className={`transition hover:bg-slate-50 dark:hover:bg-slate-800/40 ${
+                          isHighlighted ? 'bg-blue-50/80 dark:bg-blue-950/40 font-semibold' : ''
+                        }`}
+                      >
+                        <td className="p-4 font-mono">
+                          <span className="font-bold text-blue-600 dark:text-blue-400 block">{r.code}</span>
+                          <span className="text-[11px] text-slate-400">
+                            {new Date(r.createdAt).toLocaleDateString('es-CL')}
+                          </span>
+                        </td>
+                        <td className="p-4">
+                          <span className="font-bold text-slate-900 dark:text-white block">{r.projectName || 'Proyecto General'}</span>
+                          <span className="text-xs text-slate-400">👤 {r.requestedBy?.name || r.requestedBy?.email}</span>
+                          {r.notes && <p className="text-[11px] text-slate-500 italic mt-0.5">"{r.notes}"</p>}
+                        </td>
+                        <td className="p-4">
+                          {r.items.length === 0 ? (
+                            <span className="text-xs text-amber-600 dark:text-amber-400">📷 Solicitud con adjunto</span>
+                          ) : (
+                            <div className="space-y-1 max-w-xs">
+                              <button
+                                type="button"
+                                onClick={() => setOpenItemsDropdownId(openItemsDropdownId === r.id ? null : r.id)}
+                                className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition"
+                              >
+                                <span>📦 {r.items.length} ítems</span>
+                                <span className="text-slate-400">{openItemsDropdownId === r.id ? '▲' : '▼'}</span>
+                              </button>
 
-                      return (
-                        <tr
-                          key={r.id}
-                          id={`request-row-${r.id}`}
-                          className={`transition-all duration-500 ${
-                            isHighlighted
-                              ? 'bg-blue-100/80 dark:bg-blue-950/80 ring-2 ring-blue-500 font-medium'
-                              : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
-                          }`}
-                        >
-                          <td className="p-4 font-mono font-bold text-blue-600 dark:text-blue-400">
-                            {r.code}
-                            {isHighlighted && (
-                              <span className="ml-2 text-[10px] bg-blue-600 text-white px-2 py-0.5 rounded-full font-sans uppercase animate-pulse">
-                                Destacado
-                              </span>
-                            )}
-                          </td>
-                          <td className="p-4 font-medium">{r.projectName || 'Proyecto General'}</td>
-                          <td className="p-4 text-xs">
-                            <p className="font-semibold text-slate-800 dark:text-slate-200">{r.requestedBy?.name || 'Usuario'}</p>
-                            <p className="text-slate-400">{r.requestedBy?.email}</p>
-                          </td>
-                          <td className="p-4 text-xs">
-                            {r.assignedTo ? (
-                              <div>
-                                <p className="font-semibold text-emerald-600 dark:text-emerald-400">📦 {r.assignedTo.name || 'Bodeguero'}</p>
-                                <p className="text-slate-400 text-[10px]">{r.assignedTo.email}</p>
-                              </div>
-                            ) : (
-                              <span className="text-slate-400 italic">Pendiente de despacho</span>
-                            )}
-                          </td>
-                          <td className="p-4 text-xs relative">
-                            {r.items.length === 0 ? (
-                              <div className="bg-amber-50 dark:bg-amber-950/40 p-2 rounded-lg border border-amber-200 dark:border-amber-800/60 text-xs text-amber-800 dark:text-amber-300 font-medium flex items-center gap-1.5">
-                                <span>📷</span>
-                                <span>Solicitud con foto/planilla adjunta (sin lista)</span>
-                              </div>
-                            ) : (
-                              <div className="relative">
-                                <button
-                                  type="button"
-                                  onClick={() => setOpenItemsDropdownId(openItemsDropdownId === r.id ? null : r.id)}
-                                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-2 transition shadow-sm ${
-                                    hasMissingStock
-                                      ? 'bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/50 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800'
-                                      : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-700'
-                                  }`}
-                                >
-                                  <span>📦</span>
-                                  <span>{r.items.length} {r.items.length === 1 ? 'Ítem' : 'Ítems'}</span>
-                                  {hasMissingStock ? (
-                                    <span className="px-1.5 py-0.5 text-[10px] rounded bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 font-bold border border-red-300 dark:border-red-800">
-                                      Falta Stock
-                                    </span>
-                                  ) : (
-                                    <span className="px-1.5 py-0.5 text-[10px] rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-bold border border-emerald-300 dark:border-emerald-800">
-                                      Stock OK
-                                    </span>
-                                  )}
-                                  <span className="text-[10px] text-slate-400">{openItemsDropdownId === r.id ? '▲' : '▼'}</span>
-                                </button>
-
-                                {openItemsDropdownId === r.id && (
-                                  <div className="absolute left-0 top-full mt-2 w-72 sm:w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-3 z-30 space-y-2 text-xs max-h-64 overflow-y-auto">
-                                    <div className="flex justify-between items-center pb-1.5 border-b border-slate-200 dark:border-slate-800 font-semibold text-slate-500 dark:text-slate-400">
-                                      <span>Detalle de Materiales ({r.items.length})</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => setOpenItemsDropdownId(null)}
-                                        className="text-slate-400 hover:text-slate-600 dark:hover:text-white font-bold px-1"
-                                      >
-                                        ✕
-                                      </button>
+                              {openItemsDropdownId === r.id && (
+                                <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 space-y-1 text-xs mt-1">
+                                  {r.items.map((i) => (
+                                    <div key={i.id} className="flex justify-between items-center gap-2">
+                                      <span className="truncate">• {i.product?.name || i.productName} (x{i.requestedQuantity})</span>
                                     </div>
-                                    {r.items.map((item) => {
-                                      const isUtp = (item.product?.name || item.productName || '').toUpperCase().includes('UTP') || (item.product?.sku || item.sku || '').toUpperCase().includes('UTP')
-                                      const unitStr = isUtp ? 'MTS' : (item.unitMeasure || item.product?.unit || 'UN')
-                                      const isTool = isToolItem(item)
-                                      const currentStock = item.product?.stock ?? 0
-                                      const hasEnoughStock = isTool || currentStock >= item.requestedQuantity
-                                      const displayName = item.product?.name || item.productName || 'Producto'
-
-                                      return (
-                                        <div key={item.id} className="flex items-center justify-between gap-2 bg-slate-50 dark:bg-slate-800/60 p-2 rounded-lg border border-slate-200 dark:border-slate-800">
-                                          <span className={item.isChecked ? 'line-through text-slate-400 font-medium' : 'font-medium text-slate-800 dark:text-slate-200'}>
-                                            • {displayName} (<strong>{item.requestedQuantity} {unitStr}</strong>)
-                                          </span>
-                                          <span className={`px-2 py-0.5 text-[10px] rounded font-bold shrink-0 ${
-                                            isTool
-                                              ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border border-purple-300'
-                                              : hasEnoughStock
-                                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                                                : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 border border-red-300'
-                                          }`}>
-                                            {isTool ? 'Herramienta (Camioneta/Terreno)' : hasEnoughStock ? `Stock: ${currentStock}` : `Sin Stock (${currentStock})`}
-                                          </span>
-                                        </div>
-                                      )
-                                    })}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </td>
-                          <td className="p-4">
-                            {r.status === 'PENDING' ? (
-                              <span className="px-2.5 py-1 text-xs rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-300 dark:border-amber-800 font-semibold flex items-center gap-1 w-fit">
-                                <span>⏳</span> Pendiente
-                              </span>
-                            ) : r.status === 'REJECTED' ? (
-                              <span className="px-2.5 py-1 text-xs rounded-full bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-300 dark:border-rose-800 font-semibold flex items-center gap-1 w-fit">
-                                <span>🚫</span> Rechazado / Cancelado
-                              </span>
-                            ) : (
-                              <span className="px-2.5 py-1 text-xs rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 font-semibold flex items-center gap-1 w-fit">
-                                <span>✅</span> Despachado
-                              </span>
-                            )}
-                          </td>
-                          <td className="p-4 text-xs font-semibold text-slate-700 dark:text-slate-300">
-                            {r.recipientName ? (
-                              <div className="space-y-0.5">
-                                <div className="flex items-center gap-1 font-bold text-slate-800 dark:text-slate-200">
-                                  <span>👤</span> {r.recipientName}
+                                  ))}
                                 </div>
-                                {r.van && (
-                                  <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
-                                    🛻 Camioneta: {r.van.plate} ({r.van.name})
-                                  </div>
-                                )}
-                              </div>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                        <td className="p-4">
+                          {r.status === 'PENDING' ? (
+                            <span className="px-2.5 py-1 text-xs rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 font-bold border border-amber-300">
+                              ⏳ Pendiente
+                            </span>
+                          ) : r.status === 'REJECTED' ? (
+                            <span className="px-2.5 py-1 text-xs rounded-full bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 font-bold border border-rose-300">
+                              🚫 Rechazada
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-1 text-xs rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-bold border border-emerald-300">
+                              ✅ Despachada
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-4 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          {r.recipientName ? (
+                            <div>
+                              <span>👤 {r.recipientName}</span>
+                              {r.van && <div className="text-[10px] text-emerald-600">🛻 {r.van.plate}</div>}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">Sin entregar</span>
+                          )}
+                        </td>
+                        <td className="p-4 text-right space-y-1.5">
+                          {r.attachmentUrl && (
+                            r.attachmentUrl.startsWith('data:image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(r.attachmentName || '') ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setZoomedAttachment({
+                                    url: r.attachmentUrl!,
+                                    title: `Adjunto ${r.code} - ${r.attachmentName || 'Pantallazo'}`,
+                                  })
+                                }
+                                className="w-full px-3 py-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-semibold border border-blue-200 dark:border-blue-800 flex items-center justify-center gap-1"
+                              >
+                                <span>🖼️</span> Ver Imagen
+                              </button>
                             ) : (
-                              <span className="text-slate-400 font-normal">Sin entregar</span>
-                            )}
-                          </td>
-                          <td className="p-4 text-right space-y-1.5">
-                            {r.attachmentUrl && (
-                              (r.attachmentUrl.startsWith('data:image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(r.attachmentName || '')) ? (
-                                <button
-                                  type="button"
-                                  onClick={() => setZoomedAttachment({ url: r.attachmentUrl!, title: `Adjunto ${r.code} - ${r.attachmentName || 'Pantallazo'}` })}
-                                  className="w-full px-3 py-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-semibold border border-blue-200 dark:border-blue-800 flex items-center justify-center gap-1.5 transition"
-                                  title="Ver captura de pantalla / imagen adjunta"
-                                >
-                                  <span>🖼️</span> {r.attachmentName?.startsWith('pantallazo') ? 'Ver Pantallazo' : 'Ver Imagen'}
-                                </button>
-                              ) : (
-                                <a
-                                  href={r.attachmentUrl}
-                                  download={r.attachmentName || `Planilla_${r.code}.csv`}
-                                  className="w-full px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-lg text-xs font-semibold border border-slate-300 dark:border-slate-700 flex items-center justify-center gap-1 transition"
-                                  title="Descargar documento / planilla"
-                                >
-                                  <span>📥</span> {r.attachmentName || 'Planilla Adjunta'}
-                                </a>
-                              )
-                            )}
-                            {canDispatch && (
-                              <button
-                                onClick={() => handleOpenSupplierQuoteModal(r)}
-                                className={`w-full px-3 py-1.5 rounded-lg text-xs font-semibold shadow transition flex items-center justify-center gap-1 ${
-                                  hasMissingStock
-                                    ? 'bg-amber-600 hover:bg-amber-500 text-white font-bold animate-pulse'
-                                    : 'bg-slate-700 hover:bg-slate-600 text-white'
-                                }`}
-                                title="Redactar correo/documento formal de cotización a proveedor"
+                              <a
+                                href={r.attachmentUrl}
+                                download={r.attachmentName || `Planilla_${r.code}.csv`}
+                                className="w-full px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-lg text-xs font-semibold border border-slate-300 flex items-center justify-center gap-1"
                               >
-                                <span>📧</span> Cotizar a Proveedor
-                              </button>
-                            )}
-                            {r.status === 'PENDING' && canDispatch && (
-                              <button
-                                onClick={() => handleOpenDispatchModal(r)}
-                                className="w-full px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow transition active:scale-95"
-                              >
-                                Check & Despachar
-                              </button>
-                            )}
-                            {r.status === 'PENDING' && canDispatch && (
-                              <button
-                                onClick={() => handleRejectRequest(r.id)}
-                                className="w-full px-3 py-1.5 bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 rounded-lg text-xs font-bold border border-amber-300 dark:border-amber-800 transition flex items-center justify-center gap-1"
-                                title="Rechazar o cancelar esta solicitud de materiales"
-                              >
-                                <span>🚫</span> Rechazar Solicitud
-                              </button>
-                            )}
-                            {(canCreateRequest || canDispatch) && (
-                              <button
-                                onClick={() => setDeleteConfirmRequestId(r.id)}
-                                className="w-full px-3 py-1.5 bg-rose-100 hover:bg-rose-200 dark:bg-rose-950/80 text-rose-600 rounded-lg text-xs font-bold border border-rose-300 dark:border-rose-800 transition flex items-center justify-center gap-1"
-                                title="Eliminar esta solicitud de materiales"
-                              >
-                                <span>🗑️</span> Eliminar Solicitud
-                              </button>
-                            )}
-                            {r.status === 'DISPATCHED' && r.photoUrl && (
-                              <button
-                                onClick={() => setViewPhotoRequest(r)}
-                                className="w-full px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow transition active:scale-95 flex items-center justify-center gap-1"
-                              >
-                                <span>📷</span> Ver Foto
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                                <span>📥</span> {r.attachmentName || 'Planilla'}
+                              </a>
+                            )
+                          )}
+                          {canDispatch && r.status === 'PENDING' && (
+                            <button
+                              onClick={() => handleOpenDispatchModal(r)}
+                              className="w-full px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow"
+                            >
+                              Check & Despachar
+                            </button>
+                          )}
+                          {canDispatch && (
+                            <button
+                              onClick={() => handleOpenSupplierQuoteModal(r)}
+                              className="w-full px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-semibold"
+                            >
+                              📧 Cotizar
+                            </button>
+                          )}
+                          {canDispatch && r.status === 'PENDING' && (
+                            <button
+                              onClick={() => handleRejectRequest(r.id)}
+                              className="w-full px-3 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-lg text-xs font-bold border border-amber-300"
+                            >
+                              🚫 Rechazar
+                            </button>
+                          )}
+                          {(canCreateRequest || canDispatch) && (
+                            <button
+                              onClick={() => setDeleteConfirmRequestId(r.id)}
+                              className="w-full px-3 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-600 rounded-lg text-xs font-bold border border-rose-300"
+                            >
+                              🗑️ Eliminar
+                            </button>
+                          )}
+                          {r.status === 'DISPATCHED' && r.photoUrl && (
+                            <button
+                              onClick={() => setViewPhotoRequest(r)}
+                              className="w-full px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow"
+                            >
+                              📷 Ver Foto
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
-          </>
+          </div>
         )}
       </div>
 
