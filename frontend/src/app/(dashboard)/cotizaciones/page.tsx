@@ -9,6 +9,7 @@ import InvoiceConfirmationModal, { ParsedInvoiceData } from '@/components/Invoic
 import ConfirmModal from '@/components/ConfirmModal'
 import BulkDownloadModal from '@/components/BulkDownloadModal'
 import { useToast } from '@/components/ToastNotification'
+import { downloadFile } from '@/lib/download'
 import Tesseract from 'tesseract.js'
 
 interface QuotationItem {
@@ -1250,13 +1251,13 @@ export default function CotizacionesPage() {
                             </p>
                           </div>
                           <div className="flex items-center gap-1.5">
-                            <a
-                              href={doc.url}
-                              download={doc.name}
-                              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-md text-[11px] transition shadow"
+                            <button
+                              type="button"
+                              onClick={() => downloadFile(doc.url, doc.name)}
+                              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-md text-[11px] transition shadow flex items-center gap-1"
                             >
-                              ⬇️ Ver
-                            </a>
+                              <span>⬇️</span> Descargar
+                            </button>
                             <button
                               type="button"
                               onClick={() => handleDeleteDocument(doc.id)}

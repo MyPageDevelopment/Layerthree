@@ -9,6 +9,7 @@ import LoadingOverlay from '@/components/LoadingOverlay'
 import SearchableProductSelect from '@/components/SearchableProductSelect'
 import ChileanDatePicker from '@/components/ChileanDatePicker'
 import Toast, { ToastMessage } from '@/components/Toast'
+import { downloadFile } from '@/lib/download'
 
 type TabType = 'dashboard' | 'products' | 'movements'
 type DateFilter = 'day' | 'month' | 'year' | 'all'
@@ -66,6 +67,7 @@ export default function BodegaPage() {
     listPrice: 0,
     supplierCode: '',
     serialNumber: '',
+    location: '',
   })
 
 
@@ -157,6 +159,7 @@ export default function BodegaPage() {
       listPrice: 0,
       supplierCode: '',
       serialNumber: '',
+      location: '',
     })
     setShowProductModal(true)
     fetchNextSku(defaultCat)
@@ -287,6 +290,7 @@ export default function BodegaPage() {
       listPrice: 0,
       supplierCode: '',
       serialNumber: '',
+      location: '',
     })
     setEditingProduct(null)
   }
@@ -345,13 +349,11 @@ export default function BodegaPage() {
         url += `?filter=${dateFilter}&date=${selectedDate}`
       }
       const response = await api.get(url, { responseType: 'blob' })
-      const downloadUrl = window.URL.createObjectURL(new Blob([response.data]))
-      const link = document.createElement('a')
-      link.href = downloadUrl
-      link.setAttribute('download', `${type}_${new Date().toISOString().split('T')[0]}.xlsx`)
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
+      const blob = new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      const filename = `${type}_${new Date().toISOString().split('T')[0]}.xlsx`
+      downloadFile(blob, filename, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
       showToast('info', 'Reporte Excel generado y descargado', 'Reportes')
     } catch (err) {
       showToast('error', 'Error al generar el reporte Excel')
@@ -443,13 +445,7 @@ export default function BodegaPage() {
       'LT-RED-043,CABLE UTP CAT 3,Cableado Estructurado y Redes,Cables de Red y Conductores,100,MTS,1404.0,=E3*G3,2070.0,Disponible,P01928,UTP por metros'
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.setAttribute('download', 'inventario_con_costos_y_formulas.csv')
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+    downloadFile(blob, 'inventario_con_costos_y_formulas.csv', 'text/csv;charset=utf-8;')
   }
 
   const handleExportCsvBackup = () => {
@@ -458,7 +454,7 @@ export default function BodegaPage() {
       return
     }
 
-    const headers = 'SKU,Nombre Producto,Categoria,Subcategoria,Cantidad Bodega,Unidad,Costo Unitario CLP,Costo Total Bodega CLP,Precio Lista CLP,Estado,Codigo Proveedor,Observaciones'
+    const headers = 'SKU,Nombre Producto,Categoria,Subcategoria,Cantidad Bodega,Unidad,Costo Unitario CLP,Costo Total Bodega CLP,Precio Lista CLP,Ubicacion,Estado,Codigo Proveedor,Observaciones'
     const rows = products.map((p, idx) => {
       const lineNum = idx + 2
       const isUtp = (p.name || '').toUpperCase().includes('UTP') || (p.sku || '').toUpperCase().includes('UTP')
@@ -471,23 +467,18 @@ export default function BodegaPage() {
       const unitCost = p.unitCost ?? p.unitPrice ?? 0
       const formulaTotal = `=E${lineNum}*G${lineNum}`
       const listPrice = p.listPrice || 0
+      const cleanLoc = (p.location || '').replace(/"/g, '""')
       const estado = qty > 0 ? 'Disponible' : 'Sin Stock'
       const provCode = (p.supplierCode || '').replace(/"/g, '""')
       const cleanObs = (p.description || '').replace(/"/g, '""')
 
-      return `"${cleanSku}","${cleanName}","${cleanCat}","${cleanSubcat}",${qty},"${unit}",${unitCost},"${formulaTotal}",${listPrice},"${estado}","${provCode}","${cleanObs}"`
+      return `"${cleanSku}","${cleanName}","${cleanCat}","${cleanSubcat}",${qty},"${unit}",${unitCost},"${formulaTotal}",${listPrice},"${cleanLoc}","${estado}","${provCode}","${cleanObs}"`
     })
 
     const csvContent = [headers, ...rows].join('\n')
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
     const dateStr = new Date().toISOString().split('T')[0]
-    link.setAttribute('download', `inventario_con_costos_y_formulas_${dateStr}.csv`)
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+    downloadFile(blob, `inventario_con_costos_y_formulas_${dateStr}.csv`, 'text/csv;charset=utf-8;')
   }
 
   if (loading) {
@@ -789,6 +780,13 @@ export default function BodegaPage() {
                     <p className="text-xs text-slate-500 dark:text-slate-400">{product.description}</p>
                   )}
 
+                  {product.location && (
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                      <span>📍 Ubicación:</span>
+                      <span className="font-semibold text-slate-700 dark:text-slate-300">{product.location}</span>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-slate-100 dark:border-slate-800 font-mono">
                     <div>
                       <span className="text-[10px] text-slate-400 block">Costo Base Unit:</span>
@@ -819,6 +817,7 @@ export default function BodegaPage() {
                             listPrice: product.listPrice ?? 0,
                             supplierCode: product.supplierCode || '',
                             serialNumber: product.serialNumber || '',
+                            location: product.location || '',
                           })
                           setShowProductModal(true)
                         }}
@@ -878,7 +877,10 @@ export default function BodegaPage() {
                             {product.category}
                           </span>
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">
+                          {product.subcategory || '-'}
+                        </td>
+                        <td className="px-4 py-3 text-center">
                           <span
                             className={`px-2.5 py-1 rounded-full text-xs font-bold ${
                               product.stock < product.minStock
@@ -886,17 +888,26 @@ export default function BodegaPage() {
                                 : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800'
                             }`}
                           >
-                            {product.stock} {unitStr}
+                            {product.stock}
                           </span>
                         </td>
-                        <td className="px-4 py-3 font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                        <td className="px-4 py-3 text-xs font-mono font-medium text-slate-600 dark:text-slate-400">
+                          {unitStr}
+                        </td>
+                        <td className="px-4 py-3 font-mono font-semibold text-right text-emerald-600 dark:text-emerald-400">
                           ${baseCost.toLocaleString('es-CL')}
                         </td>
-                        <td className="px-4 py-3 font-mono font-bold text-slate-900 dark:text-white">
+                        <td className="px-4 py-3 font-mono font-bold text-right text-slate-900 dark:text-white">
                           ${totalCostVal.toLocaleString('es-CL')}
                         </td>
-                        <td className="px-4 py-3 font-mono text-slate-500">
-                          ${(product.listPrice || 0).toLocaleString('es-CL')}
+                        <td className="px-4 py-3 text-xs">
+                          {product.location ? (
+                            <span className="px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 font-medium border border-amber-200 dark:border-amber-800">
+                              📍 {product.location}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 italic">Sin asignar</span>
+                          )}
                         </td>
                         {canManage && (
                           <td className="px-4 py-3 text-right space-x-2">
@@ -917,6 +928,7 @@ export default function BodegaPage() {
                                   listPrice: product.listPrice ?? 0,
                                   supplierCode: product.supplierCode || '',
                                   serialNumber: product.serialNumber || '',
+                                  location: product.location || '',
                                 })
                                 setShowProductModal(true)
                               }}
@@ -1212,18 +1224,33 @@ export default function BodegaPage() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 flex justify-between items-center">
-                  <span>N° de Serie (Opcional para Equipos)</span>
-                  <span className="text-[10px] text-slate-400 font-normal">Identificador único</span>
-                </label>
-                <input
-                  type="text"
-                  value={formData.serialNumber || ''}
-                  onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })}
-                  placeholder="Ej: SN-9028471092"
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs font-mono"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 flex justify-between items-center">
+                    <span>N° de Serie (Opcional)</span>
+                    <span className="text-[10px] text-slate-400 font-normal">Equipos</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.serialNumber || ''}
+                    onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })}
+                    placeholder="Ej: SN-9028471092"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 flex justify-between items-center">
+                    <span>Ubicación en Bodega (Opcional)</span>
+                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-normal">📍 Estante / Pasillo</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.location || ''}
+                    onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                    placeholder="Ej: Pasillo A, Estante 2, Nivel 3"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

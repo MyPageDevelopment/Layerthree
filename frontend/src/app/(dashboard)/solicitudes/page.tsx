@@ -7,6 +7,7 @@ import { getUser } from '@/lib/auth'
 import type { User, Product } from '@/types'
 import LoadingOverlay from '@/components/LoadingOverlay'
 import ConfirmModal from '@/components/ConfirmModal'
+import { downloadFile } from '@/lib/download'
 
 interface RequestItem {
   id: string
@@ -29,6 +30,8 @@ interface MaterialRequest {
   photoUrl?: string
   attachmentUrl?: string
   attachmentName?: string
+  hasPhoto?: boolean
+  hasAttachment?: boolean
   notes?: string
   createdAt: string
   updatedAt: string
@@ -541,7 +544,7 @@ export default function SolicitudesPage() {
   const [dispatchError, setDispatchError] = useState('')
 
   // Handle Opening Dispatch Modal for Bodeguero
-  const handleOpenDispatchModal = (req: MaterialRequest) => {
+  const handleOpenDispatchModal = async (req: MaterialRequest) => {
     setDispatchRequest(req)
     setDispatchItemsList([...req.items])
     setDispatchRemovedIds([])
@@ -562,6 +565,18 @@ export default function SolicitudesPage() {
       }
     })
     setItemChecks(initialChecks)
+
+    // Si la solicitud tiene adjunto o foto truncada, cargar en segundo plano la data completa
+    if (req.attachmentUrl === 'HAS_ATTACHMENT' || req.photoUrl === 'HAS_PHOTO' || (!req.attachmentUrl && req.hasAttachment)) {
+      try {
+        const res = await api.get<MaterialRequest>(`/requests/${req.id}`)
+        if (res.data) {
+          setDispatchRequest(res.data)
+        }
+      } catch (e) {
+        console.error('Error cargando detalle completo para despacho:', e)
+      }
+    }
   }
 
   const handleAddProductToDispatchChecklist = (product: Product) => {
@@ -864,27 +879,36 @@ export default function SolicitudesPage() {
   const handleOpenAttachment = async (r: MaterialRequest) => {
     let attachmentUrl = r.attachmentUrl
     let attachmentName = r.attachmentName
+
     if (!attachmentUrl || attachmentUrl === 'HAS_ATTACHMENT') {
       try {
+        setActionLoadingText('Cargando adjunto / pantallazo...')
+        setIsActionLoading(true)
         const res = await api.get<MaterialRequest>(`/requests/${r.id}`)
         attachmentUrl = res.data.attachmentUrl
         attachmentName = res.data.attachmentName
       } catch (e) {
         console.error('Error cargando adjunto:', e)
+      } finally {
+        setIsActionLoading(false)
       }
     }
 
     if (!attachmentUrl) return
-    const isImg = attachmentUrl.startsWith('data:image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(attachmentName || '')
+
+    const isImg =
+      attachmentUrl.startsWith('data:image/') ||
+      /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(attachmentName || '') ||
+      attachmentName?.toLowerCase().includes('pantallazo') ||
+      !attachmentName?.includes('.')
+
     if (isImg) {
-      setZoomedAttachment({ url: attachmentUrl, title: `Adjunto ${r.code} - ${attachmentName || 'Comprobante'}` })
+      setZoomedAttachment({
+        url: attachmentUrl,
+        title: `Adjunto ${r.code} - ${attachmentName || 'Comprobante / Pantallazo'}`,
+      })
     } else {
-      const a = document.createElement('a')
-      a.href = attachmentUrl
-      a.download = attachmentName || `adjunto_${r.code}`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
+      downloadFile(attachmentUrl, attachmentName || `adjunto_${r.code}`)
     }
   }
 
@@ -1115,30 +1139,28 @@ export default function SolicitudesPage() {
                       )}
 
                       {/* Attachment file preview button */}
-                      {r.attachmentUrl && (
+                      {(r.attachmentUrl || r.hasAttachment) && (
                         <div className="pt-1.5 border-t border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between">
                           <span className="text-slate-500">Archivo Adjunto:</span>
-                          {r.attachmentUrl.startsWith('data:image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(r.attachmentName || '') ? (
+                          {(r.attachmentUrl && r.attachmentUrl.startsWith('data:image/')) ||
+                          /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(r.attachmentName || '') ||
+                          r.attachmentName?.toLowerCase().includes('pantallazo') ||
+                          !r.attachmentName?.includes('.') ? (
                             <button
                               type="button"
-                              onClick={() =>
-                                setZoomedAttachment({
-                                  url: r.attachmentUrl!,
-                                  title: `Adjunto ${r.code} - ${r.attachmentName || 'Pantallazo'}`,
-                                })
-                              }
+                              onClick={() => handleOpenAttachment(r)}
                               className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 rounded-lg font-semibold text-[11px] flex items-center gap-1 border border-blue-200 dark:border-blue-800 transition shadow-sm"
                             >
-                              <span>🖼️</span> {r.attachmentName?.startsWith('pantallazo') ? 'Ver Pantallazo' : 'Ver Imagen'}
+                              <span>🖼️</span> {r.attachmentName?.toLowerCase().includes('pantallazo') ? 'Ver Pantallazo' : 'Ver Imagen'}
                             </button>
                           ) : (
-                            <a
-                              href={r.attachmentUrl}
-                              download={r.attachmentName || `Planilla_${r.code}.csv`}
+                            <button
+                              type="button"
+                              onClick={() => handleOpenAttachment(r)}
                               className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg font-semibold text-[11px] flex items-center gap-1 border border-slate-300 dark:border-slate-700 transition shadow-sm"
                             >
                               <span>📥</span> {r.attachmentName || 'Descargar Planilla'}
-                            </a>
+                            </button>
                           )}
                         </div>
                       )}
@@ -1476,7 +1498,7 @@ export default function SolicitudesPage() {
                           )}
                         </td>
                         <td className="p-4 text-right space-y-1.5">
-                          {r.attachmentUrl && (
+                          {(r.attachmentUrl || r.hasAttachment) && (
                             <button
                               type="button"
                               onClick={() => handleOpenAttachment(r)}
@@ -1899,6 +1921,33 @@ export default function SolicitudesPage() {
                   </button>
                 </div>
               )}
+
+              {/* Sección de Adjunto / Pantallazo de Solicitud para el Bodeguero */}
+              {(dispatchRequest.attachmentUrl || dispatchRequest.hasAttachment) && (
+                <div className="p-3 bg-blue-50/90 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl flex items-center justify-between gap-3 shadow-sm">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/60 text-blue-600 dark:text-blue-300 flex items-center justify-center text-lg shrink-0">
+                      🖼️
+                    </div>
+                    <div className="min-w-0">
+                      <span className="font-bold text-xs text-blue-900 dark:text-blue-200 block truncate">
+                        {dispatchRequest.attachmentName || 'Pantallazo / Comprobante de Materiales'}
+                      </span>
+                      <span className="text-[11px] text-blue-600 dark:text-blue-400">
+                        Lista de materiales solicitada por el técnico
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenAttachment(dispatchRequest)}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold text-xs shadow shrink-0 flex items-center gap-1.5 transition active:scale-95"
+                  >
+                    <span>🔍</span> Ver Pantallazo
+                  </button>
+                </div>
+              )}
+
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <label className="block font-semibold">Checklist de Materiales a Retirar de Bodega</label>
@@ -2359,13 +2408,17 @@ export default function SolicitudesPage() {
             <div className="w-full flex justify-between items-center text-white pb-3">
               <span className="font-bold text-sm truncate">{zoomedAttachment.title}</span>
               <div className="flex items-center gap-2">
-                <a
-                  href={zoomedAttachment.url}
-                  download={zoomedAttachment.title.replace(/[^a-zA-Z0-9._-]/g, '_')}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const cleanTitle = zoomedAttachment.title.replace(/[^a-zA-Z0-9._-]/g, '_')
+                    const filename = cleanTitle.includes('.') ? cleanTitle : `${cleanTitle}.jpg`
+                    downloadFile(zoomedAttachment.url, filename)
+                  }}
                   className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs transition flex items-center gap-1"
                 >
                   <span>📥</span> Descargar
-                </a>
+                </button>
                 <button
                   onClick={() => setZoomedAttachment(null)}
                   className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white font-bold rounded-lg text-xs transition"

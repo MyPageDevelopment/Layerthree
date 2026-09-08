@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import api from '@/lib/api'
 import SearchableProductSelect from '@/components/SearchableProductSelect'
 import ChileanDatePicker from '@/components/ChileanDatePicker'
+import { downloadFile } from '@/lib/download'
 
 interface VanItem {
   id: string
@@ -1679,13 +1680,19 @@ export default function CamionetasPage() {
 
                           <div className="flex items-center gap-1 shrink-0">
                             {isPdf ? (
-                              <a
-                                href={epp.documentUrl}
-                                download={epp.documentName || `Acta_EPP_${epp.recipientName}.pdf`}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  downloadFile(
+                                    epp.documentUrl!,
+                                    epp.documentName || `Acta_EPP_${epp.recipientName}.pdf`,
+                                    'application/pdf'
+                                  )
+                                }
                                 className="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 rounded-lg text-xs font-bold border border-purple-200 dark:border-purple-800 flex items-center gap-1 transition"
                               >
                                 <span>📥</span> Descargar PDF
-                              </a>
+                              </button>
                             ) : (
                               <button
                                 type="button"

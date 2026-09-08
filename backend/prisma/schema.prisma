@@ -160,6 +160,7 @@ model Product {
   listPrice   Float           @default(0)
   supplierCode String?
   serialNumber String?         @db.VarChar(255)
+  location     String?         @db.VarChar(255)
   isDeleted   Boolean         @default(false)
   deletedAt   DateTime?
   createdAt   DateTime        @default(now())

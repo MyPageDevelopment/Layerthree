@@ -45,6 +45,12 @@ export class ProductResponseDto {
   supplierCode?: string;
 
   @Expose()
+  serialNumber?: string;
+
+  @Expose()
+  location?: string;
+
+  @Expose()
   createdAt: Date;
 
   @Expose()

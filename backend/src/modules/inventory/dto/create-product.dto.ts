@@ -58,4 +58,9 @@ export class CreateProductDto {
   @IsOptional()
   @IsString()
   serialNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  location?: string;
 }

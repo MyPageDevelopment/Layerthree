@@ -33,6 +33,7 @@ export interface Product {
   listPrice?: number
   supplierCode?: string
   serialNumber?: string
+  location?: string
   createdAt: string
   updatedAt: string
 }
