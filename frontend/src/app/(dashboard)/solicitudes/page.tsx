@@ -98,6 +98,14 @@ function isToolItem(item: RequestItem): boolean {
   return false
 }
 
+// Normalización de texto sin acentos/tildes para búsqueda precisa
+function normalizeText(text: string): string {
+  return (text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+}
+
 export default function SolicitudesPage() {
   const searchParams = useSearchParams()
   const highlightId = searchParams.get('highlight')
@@ -113,6 +121,12 @@ export default function SolicitudesPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [expandedCardItems, setExpandedCardItems] = useState<Record<string, boolean>>({})
 
+  // Paginación (Ver 6 primero y continuar - Control de sobrecarga)
+  const [currentPage, setCurrentPage] = useState<number>(1)
+  const [cardsPerPage, setCardsPerPage] = useState<number>(6)
+  const [tablePage, setTablePage] = useState<number>(1)
+  const TABLE_ITEMS_PER_PAGE = 10
+
   // Create Request Modal State
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [projectName, setProjectName] = useState('')
@@ -126,9 +140,10 @@ export default function SolicitudesPage() {
   const [isDraggingFile, setIsDraggingFile] = useState(false)
   const [zoomedAttachment, setZoomedAttachment] = useState<{ url: string; title: string } | null>(null)
 
-  // Product Search & Filter inside modal
+  // Product Search & Filter inside modal (Buscador Inteligente)
   const [productSearch, setProductSearch] = useState('')
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('TODOS')
+  const [selectedSubcategoryFilter, setSelectedSubcategoryFilter] = useState<string>('TODAS')
 
   // Selected items: map of productId -> quantity
   const [selectedProductQuantities, setSelectedProductQuantities] = useState<Record<string, number>>({})
@@ -201,12 +216,55 @@ export default function SolicitudesPage() {
     }
   }
 
-  // Filter products by search query and category
-  const filteredProducts = products.filter(p => {
-    const matchesSearch = p.name.toLowerCase().includes(productSearch.toLowerCase()) || p.sku.toLowerCase().includes(productSearch.toLowerCase())
-    const matchesCategory = selectedCategoryFilter === 'TODOS' || p.category === selectedCategoryFilter
-    return matchesSearch && matchesCategory
-  })
+  // Subcategorías dinámicas según la categoría seleccionada en el modal
+  const availableSubcategories = useMemo(() => {
+    const set = new Set<string>()
+    products.forEach((p) => {
+      if (selectedCategoryFilter === 'TODOS' || p.category === selectedCategoryFilter) {
+        if (p.subcategory && p.subcategory.trim()) {
+          set.add(p.subcategory.trim())
+        }
+      }
+    })
+    return Array.from(set).sort()
+  }, [products, selectedCategoryFilter])
+
+  // Buscador inteligente multi-palabra y normalizado de productos
+  const filteredProducts = useMemo(() => {
+    return products.filter((p) => {
+      if (selectedCategoryFilter !== 'TODOS' && p.category !== selectedCategoryFilter) {
+        return false
+      }
+      if (selectedSubcategoryFilter !== 'TODAS' && p.subcategory !== selectedSubcategoryFilter) {
+        return false
+      }
+      if (productSearch.trim()) {
+        const normQuery = normalizeText(productSearch.trim())
+        const searchTokens = normQuery.split(/\s+/).filter(Boolean)
+        const searchableText = normalizeText(
+          `${p.sku} ${p.name} ${p.description || ''} ${p.category || ''} ${p.subcategory || ''} ${p.supplierCode || ''}`
+        )
+        const matchesAllTokens = searchTokens.every((token) => searchableText.includes(token))
+        if (!matchesAllTokens) return false
+      }
+      return true
+    })
+  }, [products, productSearch, selectedCategoryFilter, selectedSubcategoryFilter])
+
+  // Buscador inteligente para agregar productos directamente al despacho
+  const filteredDispatchProducts = useMemo(() => {
+    if (!dispatchAddSearch.trim()) return products.slice(0, 15)
+    const normQuery = normalizeText(dispatchAddSearch.trim())
+    const searchTokens = normQuery.split(/\s+/).filter(Boolean)
+    return products
+      .filter((p) => {
+        const searchableText = normalizeText(
+          `${p.sku} ${p.name} ${p.description || ''} ${p.category || ''} ${p.subcategory || ''} ${p.supplierCode || ''}`
+        )
+        return searchTokens.every((token) => searchableText.includes(token))
+      })
+      .slice(0, 20)
+  }, [products, dispatchAddSearch])
 
   const handleAddProductToRequest = (prod: Product) => {
     setSelectedProductQuantities(prev => ({
@@ -420,6 +478,7 @@ export default function SolicitudesPage() {
 
     try {
       await api.post('/requests', {
+        projectId: projectName,
         projectName,
         notes: requestNotes,
         attachmentUrl: uploadedAttachmentUrl || undefined,
@@ -771,6 +830,64 @@ export default function SolicitudesPage() {
     })
   }, [requests, statusFilter, searchTerm])
 
+  // Reset de páginas al cambiar filtros o búsqueda
+  useEffect(() => {
+    setCurrentPage(1)
+    setTablePage(1)
+  }, [statusFilter, searchTerm, cardsPerPage])
+
+  const totalCardPages = Math.ceil(filteredRequests.length / cardsPerPage) || 1
+  const paginatedCardRequests = useMemo(() => {
+    const start = (currentPage - 1) * cardsPerPage
+    return filteredRequests.slice(start, start + cardsPerPage)
+  }, [filteredRequests, currentPage, cardsPerPage])
+
+  const totalTablePages = Math.ceil(filteredRequests.length / TABLE_ITEMS_PER_PAGE) || 1
+  const paginatedTableRequests = useMemo(() => {
+    const start = (tablePage - 1) * TABLE_ITEMS_PER_PAGE
+    return filteredRequests.slice(start, start + TABLE_ITEMS_PER_PAGE)
+  }, [filteredRequests, tablePage])
+
+  const handleOpenPhotoViewer = async (r: MaterialRequest) => {
+    if (!r.photoUrl || r.photoUrl === 'HAS_PHOTO') {
+      try {
+        const res = await api.get<MaterialRequest>(`/requests/${r.id}`)
+        setViewPhotoRequest(res.data)
+      } catch {
+        setViewPhotoRequest(r)
+      }
+    } else {
+      setViewPhotoRequest(r)
+    }
+  }
+
+  const handleOpenAttachment = async (r: MaterialRequest) => {
+    let attachmentUrl = r.attachmentUrl
+    let attachmentName = r.attachmentName
+    if (!attachmentUrl || attachmentUrl === 'HAS_ATTACHMENT') {
+      try {
+        const res = await api.get<MaterialRequest>(`/requests/${r.id}`)
+        attachmentUrl = res.data.attachmentUrl
+        attachmentName = res.data.attachmentName
+      } catch (e) {
+        console.error('Error cargando adjunto:', e)
+      }
+    }
+
+    if (!attachmentUrl) return
+    const isImg = attachmentUrl.startsWith('data:image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(attachmentName || '')
+    if (isImg) {
+      setZoomedAttachment({ url: attachmentUrl, title: `Adjunto ${r.code} - ${attachmentName || 'Comprobante'}` })
+    } else {
+      const a = document.createElement('a')
+      a.href = attachmentUrl
+      a.download = attachmentName || `adjunto_${r.code}`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -910,8 +1027,9 @@ export default function SolicitudesPage() {
           /* ============================================================
              VISTA TARJETAS (CARD GRID - SIMILAR A COTIZACIONES)
              ============================================================ */
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-            {filteredRequests.map((r) => {
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+              {paginatedCardRequests.map((r) => {
               const isExpanded = !!expandedCardItems[r.id]
               const hasMissingStock = r.items.some(
                 (item) => !isToolItem(item) && (item.product?.stock ?? 0) < item.requestedQuantity
@@ -1146,7 +1264,7 @@ export default function SolicitudesPage() {
                       <div className="grid grid-cols-2 gap-2">
                         {r.photoUrl ? (
                           <button
-                            onClick={() => setViewPhotoRequest(r)}
+                            onClick={() => handleOpenPhotoViewer(r)}
                             className="py-2 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow transition active:scale-95 flex items-center justify-center gap-1.5"
                           >
                             <span>📷</span> Ver Foto
@@ -1177,7 +1295,7 @@ export default function SolicitudesPage() {
 
                       {!canDispatch && r.status === 'DISPATCHED' && r.photoUrl && (
                         <button
-                          onClick={() => setViewPhotoRequest(r)}
+                          onClick={() => handleOpenPhotoViewer(r)}
                           className="flex-1 py-1.5 px-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold shadow transition text-center"
                         >
                           📷 Ver Foto Entrega
@@ -1199,7 +1317,74 @@ export default function SolicitudesPage() {
               )
             })}
           </div>
-        ) : (
+
+          {/* Controles de Paginación de Tarjetas (6 en 6 para optimizar carga y navegación) */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+              <span>
+                Mostrando <strong className="text-slate-800 dark:text-slate-200">{filteredRequests.length === 0 ? 0 : (currentPage - 1) * cardsPerPage + 1}</strong> a <strong className="text-slate-800 dark:text-slate-200">{Math.min(currentPage * cardsPerPage, filteredRequests.length)}</strong> de <strong className="text-slate-800 dark:text-slate-200">{filteredRequests.length}</strong> solicitudes
+              </span>
+              <span className="hidden sm:inline">|</span>
+              <div className="flex items-center gap-1">
+                <span>Ver:</span>
+                {[6, 12, 24].map((size) => (
+                  <button
+                    key={size}
+                    type="button"
+                    onClick={() => {
+                      setCardsPerPage(size)
+                      setCurrentPage(1)
+                    }}
+                    className={`px-2 py-0.5 rounded text-xs font-bold transition ${
+                      cardsPerPage === size
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    {size}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCardsPerPage(filteredRequests.length || 999)
+                    setCurrentPage(1)
+                  }}
+                  className={`px-2 py-0.5 rounded text-xs font-bold transition ${
+                    cardsPerPage >= filteredRequests.length && filteredRequests.length > 0
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  Todas
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled={currentPage <= 1}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40 disabled:pointer-events-none rounded-xl text-xs font-semibold transition"
+              >
+                ← Anterior
+              </button>
+              <div className="px-3 py-1.5 text-xs font-mono font-bold bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300">
+                Página {currentPage} de {totalCardPages}
+              </div>
+              <button
+                type="button"
+                disabled={currentPage >= totalCardPages}
+                onClick={() => setCurrentPage((p) => Math.min(totalCardPages, p + 1))}
+                className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40 disabled:pointer-events-none rounded-xl text-xs font-semibold transition"
+              >
+                Siguiente →
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
           /* ============================================================
              VISTA TABLA (DENSE TABLE VIEW)
              ============================================================ */
@@ -1217,7 +1402,7 @@ export default function SolicitudesPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {filteredRequests.map((r) => {
+                  {paginatedTableRequests.map((r) => {
                     const hasMissingStock = r.items.some((item) => !isToolItem(item) && (item.product?.stock ?? 0) < item.requestedQuantity)
                     const isHighlighted = highlightId === r.id
 
@@ -1292,28 +1477,13 @@ export default function SolicitudesPage() {
                         </td>
                         <td className="p-4 text-right space-y-1.5">
                           {r.attachmentUrl && (
-                            r.attachmentUrl.startsWith('data:image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(r.attachmentName || '') ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setZoomedAttachment({
-                                    url: r.attachmentUrl!,
-                                    title: `Adjunto ${r.code} - ${r.attachmentName || 'Pantallazo'}`,
-                                  })
-                                }
-                                className="w-full px-3 py-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-semibold border border-blue-200 dark:border-blue-800 flex items-center justify-center gap-1"
-                              >
-                                <span>🖼️</span> Ver Imagen
-                              </button>
-                            ) : (
-                              <a
-                                href={r.attachmentUrl}
-                                download={r.attachmentName || `Planilla_${r.code}.csv`}
-                                className="w-full px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-lg text-xs font-semibold border border-slate-300 flex items-center justify-center gap-1"
-                              >
-                                <span>📥</span> {r.attachmentName || 'Planilla'}
-                              </a>
-                            )
+                            <button
+                              type="button"
+                              onClick={() => handleOpenAttachment(r)}
+                              className="w-full px-3 py-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-semibold border border-blue-200 dark:border-blue-800 flex items-center justify-center gap-1"
+                            >
+                              <span>📎</span> {r.attachmentName || 'Ver Adjunto'}
+                            </button>
                           )}
                           {canDispatch && r.status === 'PENDING' && (
                             <button
@@ -1349,7 +1519,7 @@ export default function SolicitudesPage() {
                           )}
                           {r.status === 'DISPATCHED' && r.photoUrl && (
                             <button
-                              onClick={() => setViewPhotoRequest(r)}
+                              onClick={() => handleOpenPhotoViewer(r)}
                               className="w-full px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow"
                             >
                               📷 Ver Foto
@@ -1361,6 +1531,35 @@ export default function SolicitudesPage() {
                   })}
                 </tbody>
               </table>
+            </div>
+
+            {/* Controles de Paginación de Tabla */}
+            <div className="p-3 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+              <span>
+                Mostrando <strong className="text-slate-800 dark:text-slate-200">{filteredRequests.length === 0 ? 0 : (tablePage - 1) * TABLE_ITEMS_PER_PAGE + 1}</strong> - <strong className="text-slate-800 dark:text-slate-200">{Math.min(tablePage * TABLE_ITEMS_PER_PAGE, filteredRequests.length)}</strong> de <strong className="text-slate-800 dark:text-slate-200">{filteredRequests.length}</strong>
+              </span>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={tablePage <= 1}
+                  onClick={() => setTablePage((p) => Math.max(1, p - 1))}
+                  className="px-2.5 py-1 bg-white dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 disabled:opacity-40 disabled:pointer-events-none rounded-lg font-semibold border border-slate-200 dark:border-slate-600 transition"
+                >
+                  ← Anterior
+                </button>
+                <span className="font-mono font-bold px-2 text-slate-700 dark:text-slate-300">
+                  {tablePage} / {totalTablePages}
+                </span>
+                <button
+                  type="button"
+                  disabled={tablePage >= totalTablePages}
+                  onClick={() => setTablePage((p) => Math.min(totalTablePages, p + 1))}
+                  className="px-2.5 py-1 bg-white dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 disabled:opacity-40 disabled:pointer-events-none rounded-lg font-semibold border border-slate-200 dark:border-slate-600 transition"
+                >
+                  Siguiente →
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -1536,6 +1735,23 @@ export default function SolicitudesPage() {
                   })}
                 </div>
 
+                {/* Subcategory dropdown if available */}
+                {availableSubcategories.length > 0 && (
+                  <div className="flex items-center gap-2 pt-1">
+                    <span className="text-[11px] font-semibold text-slate-500">Subcategoría:</span>
+                    <select
+                      value={selectedSubcategoryFilter}
+                      onChange={(e) => setSelectedSubcategoryFilter(e.target.value)}
+                      className="px-2.5 py-1 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-300 font-medium"
+                    >
+                      <option value="TODAS">Todas las subcategorías ({availableSubcategories.length})</option>
+                      {availableSubcategories.map((sub) => (
+                        <option key={sub} value={sub}>{sub}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 {/* Product Search Results Grid */}
                 <div className="max-h-44 overflow-y-auto space-y-1.5 pt-2">
                   {filteredProducts.length === 0 ? (
@@ -1710,24 +1926,25 @@ export default function SolicitudesPage() {
                       className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none"
                     />
                     <div className="max-h-36 overflow-y-auto space-y-1">
-                      {products
-                        .filter(p => p.name.toLowerCase().includes(dispatchAddSearch.toLowerCase()) || p.sku.toLowerCase().includes(dispatchAddSearch.toLowerCase()))
-                        .slice(0, 10)
-                        .map(p => (
+                      {filteredDispatchProducts.length === 0 ? (
+                        <p className="text-[11px] text-slate-400 py-2 text-center">No se encontraron productos coincidentes</p>
+                      ) : (
+                        filteredDispatchProducts.map((p) => (
                           <div key={p.id} className="flex justify-between items-center p-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg">
-                            <div>
-                              <span className="font-semibold">{p.name}</span>
-                              <span className="text-[10px] text-slate-400 ml-2">SKU: {p.sku} | Stock: {p.stock}</span>
+                            <div className="min-w-0 pr-2">
+                              <span className="font-semibold block truncate">{p.name}</span>
+                              <span className="text-[10px] text-slate-400">SKU: {p.sku} | Stock: <strong className="text-slate-700 dark:text-slate-300">{p.stock}</strong> | Cat: {p.category}</span>
                             </div>
                             <button
                               type="button"
                               onClick={() => handleAddProductToDispatchChecklist(p)}
-                              className="px-2.5 py-1 bg-emerald-600 text-white rounded font-bold text-[11px] hover:bg-emerald-500"
+                              className="px-2.5 py-1 bg-emerald-600 text-white rounded font-bold text-[11px] hover:bg-emerald-500 shrink-0"
                             >
                               + Añadir
                             </button>
                           </div>
-                        ))}
+                        ))
+                      )}
                     </div>
                   </div>
                 )}

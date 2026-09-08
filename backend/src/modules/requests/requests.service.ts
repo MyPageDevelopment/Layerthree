@@ -62,9 +62,49 @@ export class RequestsService implements OnModuleInit {
   onModuleInit() {
     // Run cleanup on startup and schedule every 24h
     this.cleanupOldFilesAndPhotos();
+    this.fixLegacyMovementsProject();
     setInterval(() => {
       this.cleanupOldFilesAndPhotos();
     }, 24 * 60 * 60 * 1000);
+  }
+
+  /**
+   * Regularización retroactiva de movimientos pasados sin proyecto asignado
+   */
+  async fixLegacyMovementsProject() {
+    try {
+      const requests = await this.prisma.materialRequest.findMany({
+        where: {
+          status: 'DISPATCHED',
+          projectName: { not: null },
+        },
+        select: {
+          code: true,
+          projectName: true,
+          projectId: true,
+        },
+      });
+
+      for (const req of requests) {
+        const pName = req.projectName || req.projectId;
+        if (!pName) continue;
+
+        await this.prisma.movement.updateMany({
+          where: {
+            notes: { contains: `Despacho de Solicitud ${req.code}` },
+            OR: [
+              { projectId: null },
+              { projectId: '' },
+            ],
+          },
+          data: {
+            projectId: pName,
+          },
+        });
+      }
+    } catch (err) {
+      this.logger.error('Error regularizando proyectos en movimientos legados:', err);
+    }
   }
 
   /**
@@ -232,7 +272,7 @@ export class RequestsService implements OnModuleInit {
   }
 
   async findAll(userId: string, userRole: string) {
-    return this.prisma.materialRequest.findMany({
+    const list = await this.prisma.materialRequest.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
         items: { include: { product: true } },
@@ -241,6 +281,14 @@ export class RequestsService implements OnModuleInit {
         van: true,
       },
     });
+
+    return list.map((r) => ({
+      ...r,
+      hasPhoto: Boolean(r.photoUrl),
+      hasAttachment: Boolean(r.attachmentUrl),
+      photoUrl: r.photoUrl ? (r.photoUrl.length > 200 ? 'HAS_PHOTO' : r.photoUrl) : null,
+      attachmentUrl: r.attachmentUrl ? (r.attachmentUrl.length > 200 ? 'HAS_ATTACHMENT' : r.attachmentUrl) : null,
+    }));
   }
 
   async findOne(id: string) {
@@ -353,10 +401,11 @@ export class RequestsService implements OnModuleInit {
 
       if (itemDto.isChecked && deliveredQty > 0 && dbItem.productId) {
         // Create movement entry (EXIT / SALIDA)
+        const targetProject = request.projectName || request.projectId || 'Proyecto General';
         await this.prisma.movement.create({
           data: {
             productId: dbItem.productId,
-            projectId: request.projectId || null,
+            projectId: targetProject,
             type: 'EXIT',
             quantity: deliveredQty,
             notes: `Despacho de Solicitud ${request.code} entregado a: ${dto.recipientName}${vanObj ? ` (Camioneta: ${vanObj.plate} - ${vanObj.name})` : ''}${itemDto.serialNumber ? ` [Serie: ${itemDto.serialNumber}]` : ''}`,

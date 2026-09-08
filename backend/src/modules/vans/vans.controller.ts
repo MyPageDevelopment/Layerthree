@@ -154,4 +154,37 @@ export class VansController {
   ) {
     return this.vansService.removeItem(id, itemId, bodyDto, req.user);
   }
+
+  /* ============================================================
+     ENDPOINTS EPP (ENTREGA Y DOCUMENTOS DE EPP POR CAMIONETA)
+     ============================================================ */
+
+  @Get('epp-deliveries/all')
+  @ApiOperation({ summary: 'Obtener todas las entregas de EPP de todas las camionetas' })
+  getAllEppDeliveries() {
+    return this.vansService.getEppDeliveries();
+  }
+
+  @Get(':id/epp-deliveries')
+  @ApiOperation({ summary: 'Obtener historial de entregas de EPP de una camioneta' })
+  getVanEppDeliveries(@Param('id') id: string) {
+    return this.vansService.getEppDeliveries(id);
+  }
+
+  @Post(':id/epp-deliveries')
+  @ApiOperation({ summary: 'Registrar nueva entrega de EPP con documento firmado' })
+  createEppDelivery(
+    @Param('id') id: string,
+    @Body() dto: any,
+    @Request() req: any,
+  ) {
+    return this.vansService.createEppDelivery(id, dto, req.user);
+  }
+
+  @Delete('epp-deliveries/:deliveryId')
+  @ApiOperation({ summary: 'Eliminar un registro de entrega de EPP' })
+  deleteEppDelivery(@Param('deliveryId') deliveryId: string) {
+    return this.vansService.deleteEppDelivery(deliveryId);
+  }
 }
+

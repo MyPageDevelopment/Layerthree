@@ -96,6 +96,9 @@ export class VansService {
         maintenances: {
           orderBy: { date: 'desc' },
         },
+        eppDeliveries: {
+          orderBy: { deliveryDate: 'desc' },
+        },
       },
     });
 
@@ -116,6 +119,8 @@ export class VansService {
       const materialsCount = activeItems.filter((i) => i.type === 'MATERIAL').length;
       const totalMaintenanceCost = (v.maintenances || []).reduce((sum, m) => sum + (m.cost || 0), 0);
       const maintenancesCount = (v.maintenances || []).length;
+      const eppDeliveriesCount = (v.eppDeliveries || []).length;
+      const lastEppDate = v.eppDeliveries?.[0]?.deliveryDate || null;
 
       return {
         ...v,
@@ -125,6 +130,8 @@ export class VansService {
         materialsCount,
         totalMaintenanceCost,
         maintenancesCount,
+        eppDeliveriesCount,
+        lastEppDate,
       };
     });
   }
@@ -603,4 +610,91 @@ export class VansService {
       data: { quantity: remainingQty },
     });
   }
+
+  /* ============================================================
+     MÉTODOS EPP (ENTREGAS DE ELEMENTOS DE PROTECCIÓN PERSONAL)
+     ============================================================ */
+
+  async getEppDeliveries(vanId?: string) {
+    return this.prisma.vanEppDelivery.findMany({
+      where: vanId ? { vanId } : undefined,
+      orderBy: { deliveryDate: 'desc' },
+      include: {
+        van: {
+          select: {
+            id: true,
+            plate: true,
+            name: true,
+            driver: true,
+          },
+        },
+      },
+    });
+  }
+
+  async createEppDelivery(
+    vanId: string,
+    dto: {
+      deliveryDate?: string | Date;
+      recipientName: string;
+      eppItemsText: string;
+      documentUrl?: string;
+      documentName?: string;
+      notes?: string;
+    },
+    user?: any,
+  ) {
+    const van = await this.prisma.van.findUnique({ where: { id: vanId } });
+    if (!van) {
+      throw new NotFoundException('Camioneta no encontrada');
+    }
+
+    if (!dto.recipientName || !dto.recipientName.trim()) {
+      throw new BadRequestException('Debes indicar el nombre del técnico o persona que recibe los EPP');
+    }
+
+    if (!dto.eppItemsText || !dto.eppItemsText.trim()) {
+      throw new BadRequestException('Debes indicar o seleccionar los EPP entregados');
+    }
+
+    const deliveredBy = user ? (user.name || user.email) : 'Bodega';
+    const dateVal = dto.deliveryDate ? new Date(dto.deliveryDate) : new Date();
+
+    return this.prisma.vanEppDelivery.create({
+      data: {
+        vanId,
+        deliveryDate: dateVal,
+        recipientName: dto.recipientName.trim(),
+        eppItemsText: dto.eppItemsText.trim(),
+        documentUrl: dto.documentUrl || null,
+        documentName: dto.documentName || null,
+        notes: dto.notes ? dto.notes.trim() : null,
+        deliveredBy,
+      },
+      include: {
+        van: {
+          select: {
+            id: true,
+            plate: true,
+            name: true,
+            driver: true,
+          },
+        },
+      },
+    });
+  }
+
+  async deleteEppDelivery(deliveryId: string) {
+    const existing = await this.prisma.vanEppDelivery.findUnique({
+      where: { id: deliveryId },
+    });
+    if (!existing) {
+      throw new NotFoundException('Registro de entrega de EPP no encontrado');
+    }
+
+    return this.prisma.vanEppDelivery.delete({
+      where: { id: deliveryId },
+    });
+  }
 }
+

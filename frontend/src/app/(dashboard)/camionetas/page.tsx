@@ -48,6 +48,24 @@ interface VanMaintenance {
   }
 }
 
+interface VanEppDelivery {
+  id: string
+  vanId: string
+  recipientName: string
+  deliveryDate: string
+  eppItems: string
+  documentUrl?: string | null
+  documentName?: string | null
+  notes?: string | null
+  createdAt?: string
+  van?: {
+    id: string
+    plate: string
+    name: string
+    driver?: string | null
+  }
+}
+
 interface Van {
   id: string
   plate: string
@@ -70,7 +88,23 @@ interface Van {
   maintenances?: VanMaintenance[]
   totalMaintenanceCost?: number
   maintenancesCount?: number
+  eppDeliveries?: VanEppDelivery[]
+  eppDeliveriesCount?: number
+  lastEppDate?: string | Date | null
 }
+
+const COMMON_EPP_OPTIONS = [
+  'Casco Dieléctrico con barbiquejo',
+  'Lentes de Seguridad (Claro / Oscuro)',
+  'Zapatos de Seguridad Dieléctricos',
+  'Chaleco Reflectante Geólogo',
+  'Guantes de Cabritilla / Antipatadas',
+  'Guantes Dieléctricos Alta Tensión',
+  'Arnés de Seguridad con Cabo de Vida',
+  'Protector Auditivo Tipo Fono',
+  'Respirador / Mascarilla con Filtro',
+  'Ropa de Trabajo Térmica / Impermeable',
+]
 
 interface Product {
   id: string
@@ -174,7 +208,7 @@ export default function CamionetasPage() {
   const [filterStatus, setFilterStatus] = useState<string>('TODOS')
 
   // Top Tabs
-  const [activeMainTab, setActiveMainTab] = useState<'STOCK' | 'MANTENCIONES'>('STOCK')
+  const [activeMainTab, setActiveMainTab] = useState<'STOCK' | 'MANTENCIONES' | 'EPP'>('STOCK')
 
   // Modals state - Van Edit/Create
   const [showVanModal, setShowVanModal] = useState(false)
@@ -244,9 +278,26 @@ export default function CamionetasPage() {
   // Image Zoom Modal
   const [zoomedImage, setZoomedImage] = useState<{ url: string; title: string } | null>(null)
 
+  // EPP Management State
+  const [eppDeliveries, setEppDeliveries] = useState<VanEppDelivery[]>([])
+  const [loadingEpp, setLoadingEpp] = useState<boolean>(false)
+  const [selectedVanForEpp, setSelectedVanForEpp] = useState<string>('TODAS')
+  const [showEppModal, setShowEppModal] = useState<boolean>(false)
+  const [eppVanId, setEppVanId] = useState<string>('')
+  const [eppRecipientName, setEppRecipientName] = useState<string>('')
+  const [eppDeliveryDate, setEppDeliveryDate] = useState<string>(toDateInputValue(new Date()))
+  const [selectedEppItems, setSelectedEppItems] = useState<string[]>([])
+  const [customEppText, setCustomEppText] = useState<string>('')
+  const [eppDocumentUrl, setEppDocumentUrl] = useState<string>('')
+  const [eppDocumentName, setEppDocumentName] = useState<string>('')
+  const [eppNotes, setEppNotes] = useState<string>('')
+  const [isSavingEpp, setIsSavingEpp] = useState<boolean>(false)
+  const [zoomedEppDoc, setZoomedEppDoc] = useState<{ url: string; title: string; isPdf?: boolean } | null>(null)
+
   useEffect(() => {
     fetchVans()
     fetchProducts()
+    fetchEppDeliveries()
   }, [])
 
   const fetchVans = async () => {
@@ -696,6 +747,111 @@ export default function CamionetasPage() {
     }
   }
 
+  // ==========================================
+  // EPP MANAGEMENT HANDLERS & LOGIC
+  // ==========================================
+  const fetchEppDeliveries = async (targetVanId?: string) => {
+    try {
+      setLoadingEpp(true)
+      const endpoint = targetVanId && targetVanId !== 'TODAS'
+        ? `/vans/${targetVanId}/epp-deliveries`
+        : '/vans/epp-deliveries/all'
+      const res = await api.get(endpoint)
+      if (Array.isArray(res.data)) {
+        setEppDeliveries(res.data)
+      }
+    } catch (err) {
+      console.error('Error al cargar entregas de EPP:', err)
+    } finally {
+      setLoadingEpp(false)
+    }
+  }
+
+  const handleOpenAddEppModal = (vanId?: string) => {
+    const defaultVanId = vanId || (selectedVanForEpp !== 'TODAS' ? selectedVanForEpp : vans[0]?.id || '')
+    const currentVan = vans.find((v) => v.id === defaultVanId)
+    setEppVanId(defaultVanId)
+    setEppRecipientName(currentVan?.driver || '')
+    setEppDeliveryDate(toDateInputValue(new Date()))
+    setSelectedEppItems([])
+    setCustomEppText('')
+    setEppDocumentUrl('')
+    setEppDocumentName('')
+    setEppNotes('')
+    setShowEppModal(true)
+  }
+
+  const handleToggleEppItem = (item: string) => {
+    setSelectedEppItems((prev) =>
+      prev.includes(item) ? prev.filter((i) => i !== item) : [...prev, item]
+    )
+  }
+
+  const handleUploadEppDocument = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const base64Url = event.target?.result as string
+      if (base64Url) {
+        setEppDocumentUrl(base64Url)
+        setEppDocumentName(file.name)
+      }
+    }
+    reader.readAsDataURL(file)
+    e.target.value = ''
+  }
+
+  const handleSaveEppDelivery = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!eppVanId) {
+      alert('Debes seleccionar una camioneta')
+      return
+    }
+
+    const itemsSummary = [
+      ...selectedEppItems,
+      ...(customEppText.trim() ? [customEppText.trim()] : []),
+    ].join(', ')
+
+    if (!itemsSummary) {
+      alert('Debes seleccionar o escribir al menos un elemento de EPP entregado')
+      return
+    }
+
+    setIsSavingEpp(true)
+    try {
+      await api.post(`/vans/${eppVanId}/epp-deliveries`, {
+        recipientName: eppRecipientName || 'Trabajador / Cuadrilla',
+        deliveryDate: parseDateToNoonIso(eppDeliveryDate) || new Date().toISOString(),
+        eppItems: itemsSummary,
+        documentUrl: eppDocumentUrl || undefined,
+        documentName: eppDocumentName || undefined,
+        notes: eppNotes || undefined,
+      })
+
+      setShowEppModal(false)
+      fetchEppDeliveries(selectedVanForEpp)
+      fetchVans()
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Error al guardar entrega de EPP')
+    } finally {
+      setIsSavingEpp(false)
+    }
+  }
+
+  const handleDeleteEppDelivery = async (deliveryId: string, recipientName: string) => {
+    if (!confirm(`¿Estás seguro de eliminar el comprobante de entrega de EPP para "${recipientName}"?`)) return
+    try {
+      await api.delete(`/vans/epp-deliveries/${deliveryId}`)
+      fetchEppDeliveries(selectedVanForEpp)
+      fetchVans()
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Error al eliminar entrega de EPP')
+    }
+  }
+
   // Filtered lists
   const filteredVans = vans.filter((v) => {
     const query = searchTerm.toLowerCase().trim()
@@ -739,6 +895,31 @@ export default function CamionetasPage() {
     return matchesSearch && matchesType
   })
 
+  // All fleet EPP deliveries
+  const allFleetEppDeliveries = vans.flatMap((v) =>
+    (v.eppDeliveries || []).map((epp) => ({
+      ...epp,
+      van: { id: v.id, plate: v.plate, name: v.name, driver: v.driver },
+    }))
+  ).sort((a, b) => new Date(b.deliveryDate).getTime() - new Date(a.deliveryDate).getTime())
+
+  const effectiveEppList = eppDeliveries.length > 0 ? eppDeliveries : allFleetEppDeliveries
+
+  const filteredFleetEpp = effectiveEppList.filter((epp) => {
+    const matchesVan = selectedVanForEpp === 'TODAS' || epp.vanId === selectedVanForEpp
+    if (!matchesVan) return false
+
+    const query = searchTerm.toLowerCase().trim()
+    if (!query) return true
+
+    return (
+      epp.recipientName.toLowerCase().includes(query) ||
+      epp.eppItems.toLowerCase().includes(query) ||
+      (epp.notes && epp.notes.toLowerCase().includes(query)) ||
+      (epp.van && (epp.van.plate.toLowerCase().includes(query) || epp.van.name.toLowerCase().includes(query)))
+    )
+  })
+
   // Summary Metrics
   const totalVans = vans.length
   const activeVans = vans.filter((v) => v.status === 'EN_TERRENO').length
@@ -747,6 +928,7 @@ export default function CamionetasPage() {
   const totalMaterials = vans.reduce((sum, v) => sum + (v.materialsCount || 0), 0)
   const totalFleetMaintenanceCost = vans.reduce((sum, v) => sum + (v.totalMaintenanceCost || 0), 0)
   const totalFleetMaintenancesCount = vans.reduce((sum, v) => sum + (v.maintenancesCount || 0), 0)
+  const totalFleetEppCount = vans.reduce((sum, v) => sum + (v.eppDeliveriesCount || v.eppDeliveries?.length || 0), 0)
 
   return (
     <div className="space-y-6">
@@ -754,13 +936,19 @@ export default function CamionetasPage() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-            <span>🛻</span> Control Terreno - Stock & Mantenciones de Flota
+            <span>🛻</span> Control Terreno - Stock, Mantenciones & EPP
           </h1>
           <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
-            Gestión y seguimiento de vehículos, mantenciones, costos, fotografías e inventario en terreno
+            Gestión de vehículos, inventario en terreno, historial de mantenciones y control documental de entrega de EPP
           </p>
         </div>
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            onClick={() => handleOpenAddEppModal()}
+            className="px-4 py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl transition shadow flex items-center gap-2 text-sm"
+          >
+            <span>🦺</span> Registrar EPP
+          </button>
           <button
             onClick={() => handleOpenAddMaintenanceModal()}
             className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition shadow flex items-center gap-2 text-sm"
@@ -777,26 +965,39 @@ export default function CamionetasPage() {
       </div>
 
       {/* Main Tabs Switcher */}
-      <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-700 w-full sm:w-max">
+      <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-700 w-full sm:w-max overflow-x-auto">
         <button
           onClick={() => setActiveMainTab('STOCK')}
-          className={`flex-1 sm:flex-initial px-5 py-2 rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 ${
+          className={`flex-1 sm:flex-initial px-4 sm:px-5 py-2 rounded-xl text-xs sm:text-sm font-bold transition flex items-center justify-center gap-2 shrink-0 ${
             activeMainTab === 'STOCK'
               ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
           }`}
         >
-          <span>📦</span> Stock & Herramientas en Terreno ({totalVans})
+          <span>📦</span> Stock & Herramientas ({totalVans})
         </button>
         <button
           onClick={() => setActiveMainTab('MANTENCIONES')}
-          className={`flex-1 sm:flex-initial px-5 py-2 rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 ${
+          className={`flex-1 sm:flex-initial px-4 sm:px-5 py-2 rounded-xl text-xs sm:text-sm font-bold transition flex items-center justify-center gap-2 shrink-0 ${
             activeMainTab === 'MANTENCIONES'
               ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-sm'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
           }`}
         >
-          <span>🛠️</span> Panel de Mantenciones y Costos ({totalFleetMaintenancesCount})
+          <span>🛠️</span> Mantenciones & Costos ({totalFleetMaintenancesCount})
+        </button>
+        <button
+          onClick={() => {
+            setActiveMainTab('EPP')
+            fetchEppDeliveries(selectedVanForEpp)
+          }}
+          className={`flex-1 sm:flex-initial px-4 sm:px-5 py-2 rounded-xl text-xs sm:text-sm font-bold transition flex items-center justify-center gap-2 shrink-0 ${
+            activeMainTab === 'EPP'
+              ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-sm'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+          }`}
+        >
+          <span>🦺</span> Panel EPP y Actas ({totalFleetEppCount})
         </button>
       </div>
 
@@ -1283,6 +1484,228 @@ export default function CamionetasPage() {
                               </button>
                             ))}
                           </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ============================================================
+          TAB: PANEL DE EPP (ELEMENTOS DE PROTECCIÓN PERSONAL)
+          ============================================================ */}
+      {activeMainTab === 'EPP' && (
+        <div className="space-y-4 sm:space-y-6">
+          {/* Top Toolbar: Filter by Van, Search, and Action Button */}
+          <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div className="flex flex-wrap items-center gap-3 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-500">Filtrar Camioneta:</span>
+                <select
+                  value={selectedVanForEpp}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setSelectedVanForEpp(val)
+                    fetchEppDeliveries(val)
+                  }}
+                  className="px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                >
+                  <option value="TODAS">🚐 Todas las Camionetas ({vans.length})</option>
+                  {vans.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.plate} - {v.name} ({v.driver || 'Sin Conductor'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="relative flex-1 min-w-[200px]">
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="🔍 Buscar por trabajador, elemento EPP o patente..."
+                  className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+                {searchTerm && (
+                  <button
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <button
+              onClick={() => handleOpenAddEppModal(selectedVanForEpp !== 'TODAS' ? selectedVanForEpp : undefined)}
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs sm:text-sm font-bold shadow transition active:scale-95 flex items-center justify-center gap-2"
+            >
+              <span>➕</span> Registrar Entrega de EPP
+            </button>
+          </div>
+
+          {/* Cards Grid: Entregas de EPP */}
+          {loadingEpp ? (
+            <div className="p-12 text-center text-slate-500 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl">
+              Cargando registros de EPP...
+            </div>
+          ) : filteredFleetEpp.length === 0 ? (
+            <div className="p-12 text-center space-y-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl">
+              <span className="text-4xl block">🦺</span>
+              <p className="text-lg font-bold text-slate-800 dark:text-slate-200">No hay entregas de EPP registradas</p>
+              <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto">
+                Registra aquí la entrega de elementos de protección personal (Cascos, Zapatos, Chalecos, Guantes) y sube las actas firmadas o fotografías de respaldo.
+              </p>
+              <button
+                onClick={() => handleOpenAddEppModal(selectedVanForEpp !== 'TODAS' ? selectedVanForEpp : undefined)}
+                className="mt-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold shadow transition inline-flex items-center gap-1.5"
+              >
+                <span>➕</span> Registrar Primera Entrega
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredFleetEpp.map((epp) => {
+                const vanInfo = epp.van || vans.find((v) => v.id === epp.vanId)
+                const itemsList = (epp.eppItems || '')
+                  .split(',')
+                  .map((i) => i.trim())
+                  .filter(Boolean)
+
+                const isPdf = epp.documentName?.toLowerCase().endsWith('.pdf') || (epp.documentUrl || '').startsWith('data:application/pdf')
+
+                return (
+                  <div
+                    key={epp.id}
+                    className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm hover:shadow-md transition space-y-3 flex flex-col justify-between"
+                  >
+                    <div className="space-y-2.5">
+                      {/* Card Header: Van Plate, Recipient and Actions */}
+                      <div className="flex justify-between items-start gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            {vanInfo && (
+                              <span className="px-2.5 py-0.5 bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-mono font-bold rounded text-xs">
+                                {vanInfo.plate}
+                              </span>
+                            )}
+                            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                              🦺 Entrega EPP
+                            </span>
+                          </div>
+                          <h4 className="font-extrabold text-sm text-slate-900 dark:text-white mt-1.5 flex items-center gap-1.5">
+                            <span>👤</span> {epp.recipientName}
+                          </h4>
+                          {vanInfo && (
+                            <p className="text-[11px] text-slate-400">
+                              Camioneta: {vanInfo.name} {vanInfo.driver ? `(Cond: ${vanInfo.driver})` : ''}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-[11px] font-mono font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
+                            📅 {formatChileanDate(epp.deliveryDate)}
+                          </span>
+                          <button
+                            onClick={() => handleDeleteEppDelivery(epp.id, epp.recipientName)}
+                            className="p-1 text-slate-400 hover:text-rose-500 transition text-xs"
+                            title="Eliminar registro"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* EPP Items Delivered (Chips) */}
+                      <div className="space-y-1.5">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                          Elementos Entregados ({itemsList.length}):
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {itemsList.map((item, idx) => (
+                            <span
+                              key={idx}
+                              className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-medium border border-slate-200 dark:border-slate-700"
+                            >
+                              ✓ {item}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Notes / Observaciones */}
+                      {epp.notes && (
+                        <div className="p-2 bg-slate-50 dark:bg-slate-800/40 rounded-xl text-xs text-slate-600 dark:text-slate-400 border border-slate-100 dark:border-slate-800 italic">
+                          "{epp.notes}"
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Document / Acta Attachment */}
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                      {epp.documentUrl ? (
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            {isPdf ? (
+                              <span className="text-lg">📄</span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setZoomedImage({
+                                    url: epp.documentUrl!,
+                                    title: `Acta EPP: ${epp.recipientName} - ${vanInfo?.plate || ''}`,
+                                  })
+                                }
+                                className="w-9 h-9 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 shrink-0 hover:ring-2 hover:ring-purple-500 transition"
+                              >
+                                <img src={epp.documentUrl} alt="Comprobante" className="w-full h-full object-cover" />
+                              </button>
+                            )}
+                            <div className="min-w-0">
+                              <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 block truncate">
+                                {epp.documentName || 'Acta de Entrega'}
+                              </span>
+                              <span className="text-[10px] text-slate-400 block">Comprobante de respaldo</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            {isPdf ? (
+                              <a
+                                href={epp.documentUrl}
+                                download={epp.documentName || `Acta_EPP_${epp.recipientName}.pdf`}
+                                className="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 rounded-lg text-xs font-bold border border-purple-200 dark:border-purple-800 flex items-center gap-1 transition"
+                              >
+                                <span>📥</span> Descargar PDF
+                              </a>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setZoomedImage({
+                                    url: epp.documentUrl!,
+                                    title: `Acta EPP: ${epp.recipientName} - ${vanInfo?.plate || ''}`,
+                                  })
+                                }
+                                className="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 rounded-lg text-xs font-bold border border-purple-200 dark:border-purple-800 flex items-center gap-1 transition"
+                              >
+                                <span>👁️</span> Ver Acta
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex justify-between items-center text-xs text-slate-400">
+                          <span>Sin acta adjunta</span>
+                          <span className="text-[10px] italic">Firma pendiente</span>
                         </div>
                       )}
                     </div>
@@ -2269,6 +2692,213 @@ export default function CamionetasPage() {
               >
                 {isSubmittingRemove ? 'Procesando...' : 'Confirmar Retiro'}
               </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          MODAL: REGISTRAR ENTREGA DE EPP A CAMIONETA
+          ============================================================ */}
+      {showEppModal && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] my-auto flex flex-col">
+            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🦺</span>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">Registrar Entrega de EPP</h3>
+                  <p className="text-xs text-slate-400">Asigna elementos de protección y sube el acta de entrega</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowEppModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white text-xl"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEppDelivery} className="space-y-4 text-xs overflow-y-auto pr-1 flex-1">
+              {/* Van & Recipient */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Camioneta Destino *</label>
+                  <select
+                    value={eppVanId}
+                    onChange={(e) => {
+                      const vId = e.target.value
+                      setEppVanId(vId)
+                      const targetV = vans.find((v) => v.id === vId)
+                      if (targetV?.driver && !eppRecipientName) {
+                        setEppRecipientName(targetV.driver)
+                      }
+                    }}
+                    required
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 font-medium"
+                  >
+                    <option value="">Selecciona una camioneta...</option>
+                    {vans.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.plate} - {v.name} {v.driver ? `(${v.driver})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Trabajador / Receptor *</label>
+                  <input
+                    type="text"
+                    required
+                    value={eppRecipientName}
+                    onChange={(e) => setEppRecipientName(e.target.value)}
+                    placeholder="Ej: Juan Pérez / Cuadrilla Fibra"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+              </div>
+
+              {/* Delivery Date */}
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Fecha de Entrega *</label>
+                <input
+                  type="date"
+                  required
+                  value={eppDeliveryDate}
+                  onChange={(e) => setEppDeliveryDate(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              {/* Quick Select Common EPP Items */}
+              <div className="space-y-2 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                <label className="block font-bold text-slate-700 dark:text-slate-300">
+                  Selecciona los EPP entregados (clic para marcar):
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {COMMON_EPP_OPTIONS.map((item) => {
+                    const isSelected = selectedEppItems.includes(item)
+                    return (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => handleToggleEppItem(item)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition border flex items-center gap-1 ${
+                          isSelected
+                            ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
+                            : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:border-purple-400'
+                        }`}
+                      >
+                        <span>{isSelected ? '✓' : '+'}</span>
+                        <span>{item}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                <div className="pt-2">
+                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                    Otros EPP o Tallas Específicas (opcional):
+                  </label>
+                  <input
+                    type="text"
+                    value={customEppText}
+                    onChange={(e) => setCustomEppText(e.target.value)}
+                    placeholder="Ej: Calzado Talla 42, Casco Blanco con logo Layerthree..."
+                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Upload Acta / Comprobante */}
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
+                <div className="flex justify-between items-center">
+                  <label className="block font-bold text-slate-700 dark:text-slate-300">
+                    📎 Subir Acta de Entrega o Comprobante Firmado (PDF o Imagen)
+                  </label>
+                  {eppDocumentName && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEppDocumentUrl('')
+                        setEppDocumentName('')
+                      }}
+                      className="text-xs text-rose-500 hover:underline font-semibold"
+                    >
+                      Remover archivo
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <label className="cursor-pointer px-3.5 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-semibold text-xs shadow transition active:scale-95 flex items-center gap-1.5 shrink-0">
+                    <span>📁 Seleccionar Documento</span>
+                    <input
+                      type="file"
+                      accept="application/pdf,image/*"
+                      onChange={handleUploadEppDocument}
+                      className="hidden"
+                    />
+                  </label>
+
+                  {eppDocumentName ? (
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-mono text-slate-800 dark:text-slate-200 font-bold truncate">
+                        📄 {eppDocumentName}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-[11px] text-slate-400">PDF o foto de documento firmado</span>
+                  )}
+                </div>
+
+                {eppDocumentUrl && !eppDocumentName.toLowerCase().endsWith('.pdf') && (
+                  <div className="mt-2 w-24 h-24 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700">
+                    <img src={eppDocumentUrl} alt="Vista previa" className="w-full h-full object-cover" />
+                  </div>
+                )}
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Observaciones / Notas</label>
+                <textarea
+                  value={eppNotes}
+                  onChange={(e) => setEppNotes(e.target.value)}
+                  rows={2}
+                  placeholder="Ej: Entrega por inicio de faena proyecto datacenter, trabajador firma conforme..."
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              {/* Footer Actions */}
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowEppModal(false)}
+                  className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-xl transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingEpp}
+                  className="px-5 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl shadow transition disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isSavingEpp ? (
+                    <>
+                      <span className="animate-spin text-sm">⏳</span>
+                      <span>Guardando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>💾</span>
+                      <span>Guardar Acta de EPP</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </form>
           </div>
         </div>

@@ -779,6 +779,7 @@ model Van {
   updatedAt DateTime  @updatedAt
   items     VanItem[]
   maintenances VanMaintenance[]
+  eppDeliveries VanEppDelivery[]
   materialRequests MaterialRequest[]
 
   @@map("vans")
@@ -829,4 +830,24 @@ model VanMaintenance {
   @@index([date])
   @@map("van_maintenances")
 }
+
+model VanEppDelivery {
+  id            String   @id @default(uuid())
+  vanId         String
+  van           Van      @relation(fields: [vanId], references: [id], onDelete: Cascade)
+  deliveryDate  DateTime
+  recipientName String   @db.VarChar(255)
+  eppItemsText  String   @db.Text
+  documentUrl   String?  @db.LongText
+  documentName  String?  @db.VarChar(255)
+  deliveredBy   String?  @db.VarChar(255)
+  notes         String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([vanId])
+  @@index([deliveryDate])
+  @@map("van_epp_deliveries")
+}
+
 

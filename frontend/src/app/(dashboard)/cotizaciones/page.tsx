@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import api from '@/lib/api'
 import { getUser } from '@/lib/auth'
 import type { User, Product } from '@/types'
@@ -97,6 +97,10 @@ export default function CotizacionesPage() {
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL')
   const [searchTerm, setSearchTerm] = useState('')
+
+  // Paginación de tarjetas (6 en 6 como solicitó el usuario para no sobrecargar la página)
+  const [currentPage, setCurrentPage] = useState<number>(1)
+  const [itemsPerPage, setItemsPerPage] = useState<number>(6)
 
   // Modal 1: Iniciar Flujo de Compra (Solo Cotización Inicial)
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -604,6 +608,17 @@ export default function CotizacionesPage() {
     return true
   })
 
+  // Paginación (6 en 6 como pidió el usuario para no sobrecargar la página)
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [statusFilter, searchTerm, itemsPerPage])
+
+  const totalPages = Math.ceil(filteredQuotations.length / itemsPerPage) || 1
+  const paginatedQuotations: QuotationRequest[] = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage
+    return filteredQuotations.slice(start, start + itemsPerPage)
+  }, [filteredQuotations, currentPage, itemsPerPage])
+
   return (
     <div className="space-y-6">
       {/* Header Bar */}
@@ -697,8 +712,9 @@ export default function CotizacionesPage() {
           No hay flujos de compra registrados en esta sección.
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filteredQuotations.map((q) => {
+        <div className="space-y-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {paginatedQuotations.map((q) => {
             let docsCount = 0
             if (q.documentsJson) {
               try {
@@ -784,7 +800,74 @@ export default function CotizacionesPage() {
             )
           })}
         </div>
-      )}
+
+        {/* Controles de Paginación de Cotizaciones */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+            <span>
+              Mostrando <strong className="text-slate-800 dark:text-slate-200">{filteredQuotations.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}</strong> a <strong className="text-slate-800 dark:text-slate-200">{Math.min(currentPage * itemsPerPage, filteredQuotations.length)}</strong> de <strong className="text-slate-800 dark:text-slate-200">{filteredQuotations.length}</strong> cotizaciones
+            </span>
+            <span className="hidden sm:inline">|</span>
+            <div className="flex items-center gap-1">
+              <span>Ver:</span>
+              {[6, 12, 24].map((size) => (
+                <button
+                  key={size}
+                  type="button"
+                  onClick={() => {
+                    setItemsPerPage(size)
+                    setCurrentPage(1)
+                  }}
+                  className={`px-2 py-0.5 rounded text-xs font-bold transition ${
+                    itemsPerPage === size
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {size}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setItemsPerPage(filteredQuotations.length || 999)
+                  setCurrentPage(1)
+                }}
+                className={`px-2 py-0.5 rounded text-xs font-bold transition ${
+                  itemsPerPage >= filteredQuotations.length && filteredQuotations.length > 0
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                }`}
+              >
+                Todas
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              disabled={currentPage <= 1}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40 disabled:pointer-events-none rounded-xl text-xs font-semibold transition"
+            >
+              ← Anterior
+            </button>
+            <div className="px-3 py-1.5 text-xs font-mono font-bold bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300">
+              Página {currentPage} de {totalPages}
+            </div>
+            <button
+              type="button"
+              disabled={currentPage >= totalPages}
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40 disabled:pointer-events-none rounded-xl text-xs font-semibold transition"
+            >
+              Siguiente →
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
 
       {/* MODAL 1: CREAR NUEVO FLUJO DE COMPRA (Formulario Exclusivo de Cotización Inicial) */}
       {showCreateModal && (
