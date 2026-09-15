@@ -637,7 +637,8 @@ export class VansService {
     dto: {
       deliveryDate?: string | Date;
       recipientName: string;
-      eppItemsText: string;
+      eppItemsText?: string;
+      eppItems?: string;
       documentUrl?: string;
       documentName?: string;
       notes?: string;
@@ -653,7 +654,8 @@ export class VansService {
       throw new BadRequestException('Debes indicar el nombre del técnico o persona que recibe los EPP');
     }
 
-    if (!dto.eppItemsText || !dto.eppItemsText.trim()) {
+    const itemsText = (dto.eppItemsText || (dto as any).eppItems || '').trim();
+    if (!itemsText) {
       throw new BadRequestException('Debes indicar o seleccionar los EPP entregados');
     }
 
@@ -665,7 +667,7 @@ export class VansService {
         vanId,
         deliveryDate: dateVal,
         recipientName: dto.recipientName.trim(),
-        eppItemsText: dto.eppItemsText.trim(),
+        eppItemsText: itemsText,
         documentUrl: dto.documentUrl || null,
         documentName: dto.documentName || null,
         notes: dto.notes ? dto.notes.trim() : null,

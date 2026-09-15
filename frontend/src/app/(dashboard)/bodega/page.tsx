@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
+import Link from 'next/link'
 import api from '@/lib/api'
 import { isAdmin, canManageInventory } from '@/lib/auth'
-import type { Product, Movement, ProductCategory } from '@/types'
+import type { Product, Movement, ProductCategory, QuotationRequest } from '@/types'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import LoadingOverlay from '@/components/LoadingOverlay'
 import SearchableProductSelect from '@/components/SearchableProductSelect'
@@ -18,7 +19,18 @@ export default function BodegaPage() {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard')
   const [products, setProducts] = useState<Product[]>([])
   const [movements, setMovements] = useState<Movement[]>([])
+  const [quotations, setQuotations] = useState<QuotationRequest[]>([])
   const [loading, setLoading] = useState(true)
+
+  // Filtros Compras y Cotizaciones por Proyecto (Dashboard)
+  const [purchaseTitleFilter, setPurchaseTitleFilter] = useState<string>('ALL')
+  const [purchaseSearchTerm, setPurchaseSearchTerm] = useState<string>('')
+  const [purchasePeriodFilter, setPurchasePeriodFilter] = useState<'all' | 'this_month' | 'last_month' | 'last_3_months' | 'this_year' | 'custom_month'>('all')
+  const [customMonthValue, setCustomMonthValue] = useState<string>(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  })
+  const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({})
 
   // Notificaciones Toast y Loading Overlay
   const [toast, setToast] = useState<ToastMessage | null>(null)
@@ -90,14 +102,16 @@ export default function BodegaPage() {
   const loadData = async () => {
     setLoading(true)
     try {
-      const [productsRes, movementsRes, vansRes] = await Promise.all([
+      const [productsRes, movementsRes, vansRes, quotationsRes] = await Promise.all([
         api.get<Product[]>('/products'),
         api.get<Movement[]>('/movements'),
         api.get('/vans').catch(() => ({ data: [] })),
+        api.get<QuotationRequest[]>('/quotations').catch(() => ({ data: [] })),
       ])
       setProducts(productsRes.data)
       setMovements(movementsRes.data)
       if (Array.isArray(vansRes.data)) setVans(vansRes.data)
+      if (Array.isArray(quotationsRes.data)) setQuotations(quotationsRes.data)
     } catch (err) {
       console.error('Error cargando bodega:', err)
     } finally {
@@ -123,6 +137,183 @@ export default function BodegaPage() {
     const cost = p.unitCost ?? p.unitPrice ?? 0
     return sum + (p.stock || 0) * cost
   }, 0)
+
+  // Proyectos / Títulos únicos para el filtro
+  const uniqueProjectTitles = useMemo(() => {
+    const map = new Map<string, { title: string; count: number }>()
+    quotations.forEach((q) => {
+      const trimmed = q.title?.trim()
+      if (!trimmed) return
+      const existing = map.get(trimmed)
+      if (existing) {
+        existing.count += 1
+      } else {
+        map.set(trimmed, { title: trimmed, count: 1 })
+      }
+    })
+    return Array.from(map.values()).sort((a, b) => a.title.localeCompare(b.title))
+  }, [quotations])
+
+  // Filtrado de Cotizaciones / Compras según Fecha y Título
+  const filteredPurchaseQuotations = useMemo(() => {
+    const now = new Date()
+    const currentYear = now.getFullYear()
+    const currentMonth = now.getMonth()
+
+    return quotations.filter((q) => {
+      // 1. Filtro por Fecha
+      const qDate = new Date(q.createdAt)
+      const qYear = qDate.getFullYear()
+      const qMonth = qDate.getMonth()
+
+      if (purchasePeriodFilter === 'this_month') {
+        if (qYear !== currentYear || qMonth !== currentMonth) return false
+      } else if (purchasePeriodFilter === 'last_month') {
+        const lastMonthDate = new Date(currentYear, currentMonth - 1, 1)
+        if (qYear !== lastMonthDate.getFullYear() || qMonth !== lastMonthDate.getMonth()) return false
+      } else if (purchasePeriodFilter === 'last_3_months') {
+        const threeMonthsAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
+        if (qDate < threeMonthsAgo) return false
+      } else if (purchasePeriodFilter === 'this_year') {
+        if (qYear !== currentYear) return false
+      } else if (purchasePeriodFilter === 'custom_month' && customMonthValue) {
+        const [targetY, targetM] = customMonthValue.split('-').map(Number)
+        if (qYear !== targetY || qMonth !== targetM - 1) return false
+      }
+
+      // 2. Filtro por Título seleccionado en dropdown
+      if (purchaseTitleFilter !== 'ALL') {
+        if (q.title?.trim().toLowerCase() !== purchaseTitleFilter.trim().toLowerCase()) return false
+      }
+
+      // 3. Filtro por Buscador de texto
+      if (purchaseSearchTerm.trim()) {
+        const term = purchaseSearchTerm.toLowerCase()
+        const matches =
+          (q.title && q.title.toLowerCase().includes(term)) ||
+          (q.projectName && q.projectName.toLowerCase().includes(term)) ||
+          (q.code && q.code.toLowerCase().includes(term)) ||
+          (q.customCode && q.customCode.toLowerCase().includes(term))
+        if (!matches) return false
+      }
+
+      return true
+    })
+  }, [quotations, purchasePeriodFilter, customMonthValue, purchaseTitleFilter, purchaseSearchTerm])
+
+  // Agrupación de compras por Título (Proyecto) - considerando compras sucesivas del mismo título
+  const groupedProjects = useMemo(() => {
+    const map = new Map<string, {
+      title: string
+      projectNames: Set<string>
+      totalSpent: number
+      purchasesCount: number
+      purchases: QuotationRequest[]
+      lastDate: string
+    }>()
+
+    filteredPurchaseQuotations.forEach((q) => {
+      const key = q.title?.trim() || 'Sin Título'
+      const existing = map.get(key)
+      const cost = Number(q.totalEstimatedCost) || 0
+
+      if (existing) {
+        existing.totalSpent += cost
+        existing.purchasesCount += 1
+        existing.purchases.push(q)
+        if (q.projectName) existing.projectNames.add(q.projectName)
+        if (q.createdAt > existing.lastDate) existing.lastDate = q.createdAt
+      } else {
+        const names = new Set<string>()
+        if (q.projectName) names.add(q.projectName)
+        map.set(key, {
+          title: key,
+          projectNames: names,
+          totalSpent: cost,
+          purchasesCount: 1,
+          purchases: [q],
+          lastDate: q.createdAt,
+        })
+      }
+    })
+
+    // Ordenar por mayor gasto total
+    return Array.from(map.values()).sort((a, b) => b.totalSpent - a.totalSpent)
+  }, [filteredPurchaseQuotations])
+
+  // KPIs Financieros de Compras
+  const totalPurchaseSpent = useMemo(() => {
+    return filteredPurchaseQuotations.reduce((acc, q) => acc + (Number(q.totalEstimatedCost) || 0), 0)
+  }, [filteredPurchaseQuotations])
+
+  const totalProjectsCount = groupedProjects.length
+  const totalOrdersCount = filteredPurchaseQuotations.length
+  const avgPerProject = totalProjectsCount > 0 ? totalPurchaseSpent / totalProjectsCount : 0
+
+  const handleToggleProjectExpand = (title: string) => {
+    setExpandedProjects((prev) => ({ ...prev, [title]: !prev[title] }))
+  }
+
+  const handleExportPurchaseReport = () => {
+    if (filteredPurchaseQuotations.length === 0) {
+      showToast('warning', 'No hay datos de compras para exportar con los filtros aplicados.', 'Reporte Vacío')
+      return
+    }
+
+    const headers = [
+      'Código',
+      'Código Personalizado',
+      'Título Cotización / Compra',
+      'Nombre del Proyecto',
+      'Destino',
+      'Estado',
+      'Valor Compra ($ CLP)',
+      'Fecha Creación',
+      'Solicitante',
+      'Factura N°'
+    ]
+
+    const rows = filteredPurchaseQuotations.map((q) => [
+      q.code,
+      q.customCode || '',
+      `"${(q.title || '').replace(/"/g, '""')}"`,
+      `"${(q.projectName || '').replace(/"/g, '""')}"`,
+      q.destinationType,
+      q.status,
+      q.totalEstimatedCost || 0,
+      new Date(q.createdAt).toLocaleDateString('es-CL'),
+      `"${(q.requestedBy?.name || q.requestedBy?.email || '').replace(/"/g, '""')}"`,
+      q.invoiceNumber || ''
+    ])
+
+    const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map(r => r.join(';'))].join('\n')
+    downloadFile(
+      `data:text/csv;charset=utf-8,${encodeURIComponent(csvContent)}`,
+      `Reporte_Gastos_Compras_Proyectos_${new Date().toISOString().slice(0, 10)}.csv`
+    )
+    showToast('success', 'Reporte de compras exportado en CSV', 'Descarga Lista')
+  }
+
+  const getPurchaseStatusBadge = (status: QuotationRequest['status']) => {
+    switch (status) {
+      case 'PENDING_QUOTE':
+        return <span className="px-2 py-0.5 text-[10px] rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 font-semibold border border-amber-300 dark:border-amber-800">⏳ Cot. Pendiente</span>
+      case 'QUOTED':
+        return <span className="px-2 py-0.5 text-[10px] rounded-full bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-300 font-semibold border border-blue-300 dark:border-blue-800">💬 Cotizado</span>
+      case 'ORDER_PLACED':
+        return <span className="px-2 py-0.5 text-[10px] rounded-full bg-indigo-100 text-indigo-800 dark:bg-indigo-950/80 dark:text-indigo-300 font-semibold border border-indigo-300 dark:border-indigo-800">📄 OC Subida</span>
+      case 'IN_PROCESSING':
+        return <span className="px-2 py-0.5 text-[10px] rounded-full bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300 font-semibold border border-sky-300 dark:border-sky-800">⚙️ En Tramitación</span>
+      case 'READY_FOR_PICKUP':
+        return <span className="px-2 py-0.5 text-[10px] rounded-full bg-teal-100 text-teal-800 dark:bg-teal-950/80 dark:text-teal-300 font-semibold border border-teal-300 dark:border-teal-800">📦 Listo Retiro</span>
+      case 'COMPLETED':
+        return <span className="px-2 py-0.5 text-[10px] rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 font-semibold border border-emerald-300 dark:border-emerald-800">✅ Facturado</span>
+      case 'CANCELLED':
+        return <span className="px-2 py-0.5 text-[10px] rounded-full bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300 font-semibold border border-rose-300 dark:border-rose-800">🚫 Cancelado</span>
+      default:
+        return null
+    }
+  }
 
 
 
@@ -639,6 +830,341 @@ export default function BodegaPage() {
                   </p>
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* SECCIÓN FINANCIERA: INVERSIÓN Y GASTOS EN COMPRAS POR PROYECTO */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm space-y-5">
+            {/* Header de la Sección */}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div>
+                <h3 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                  <span>💼</span> Inversión & Gastos en Compras por Proyecto
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Filtra por título/proyecto (agrupa automáticamente compras adicionales del mismo proyecto) y por períodos de fecha para conocer el gasto mensual o histórico.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 self-start md:self-auto">
+                <button
+                  type="button"
+                  onClick={handleExportPurchaseReport}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow"
+                >
+                  <span>📊</span> Exportar Reporte (CSV)
+                </button>
+                <Link
+                  href="/cotizaciones"
+                  className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow"
+                >
+                  <span>➕</span> Nueva Cotización
+                </Link>
+              </div>
+            </div>
+
+            {/* Barra de Filtros: Período + Selector de Proyecto + Buscador */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-3 bg-slate-50 dark:bg-slate-800/40 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800">
+              {/* Filtro por Período */}
+              <div className="md:col-span-5 space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                  📅 Filtrar por Fecha / Período:
+                </label>
+                <div className="flex flex-wrap gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setPurchasePeriodFilter('all')}
+                    className={`px-2.5 py-1 text-xs rounded-lg font-bold transition ${
+                      purchasePeriodFilter === 'all'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                    }`}
+                  >
+                    Histórico
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPurchasePeriodFilter('this_month')}
+                    className={`px-2.5 py-1 text-xs rounded-lg font-bold transition ${
+                      purchasePeriodFilter === 'this_month'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                    }`}
+                  >
+                    Este Mes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPurchasePeriodFilter('last_month')}
+                    className={`px-2.5 py-1 text-xs rounded-lg font-bold transition ${
+                      purchasePeriodFilter === 'last_month'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                    }`}
+                  >
+                    Mes Anterior
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPurchasePeriodFilter('this_year')}
+                    className={`px-2.5 py-1 text-xs rounded-lg font-bold transition ${
+                      purchasePeriodFilter === 'this_year'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                    }`}
+                  >
+                    Este Año
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPurchasePeriodFilter('custom_month')}
+                    className={`px-2.5 py-1 text-xs rounded-lg font-bold transition ${
+                      purchasePeriodFilter === 'custom_month'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                    }`}
+                  >
+                    Elegir Mes
+                  </button>
+                </div>
+                {purchasePeriodFilter === 'custom_month' && (
+                  <div className="pt-1 flex items-center gap-2">
+                    <span className="text-[11px] text-slate-500 font-semibold">Selecciona mes:</span>
+                    <input
+                      type="month"
+                      value={customMonthValue}
+                      onChange={(e) => setCustomMonthValue(e.target.value)}
+                      className="px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-bold text-slate-900 dark:text-white"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Filtro por Título de Proyecto */}
+              <div className="md:col-span-4 space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                  🏢 Filtrar por Título / Proyecto:
+                </label>
+                <select
+                  value={purchaseTitleFilter}
+                  onChange={(e) => setPurchaseTitleFilter(e.target.value)}
+                  className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="ALL">Todos los Proyectos ({uniqueProjectTitles.length})</option>
+                  {uniqueProjectTitles.map((item) => (
+                    <option key={item.title} value={item.title}>
+                      {item.title} ({item.count} {item.count === 1 ? 'compra' : 'compras'})
+                    </option>
+                  ))}
+                </select>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 block">
+                  * Títulos idénticos se agrupan en un solo proyecto.
+                </span>
+              </div>
+
+              {/* Buscador de Texto */}
+              <div className="md:col-span-3 space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                  🔍 Búsqueda rápida:
+                </label>
+                <input
+                  type="text"
+                  placeholder="Buscar título, código..."
+                  value={purchaseSearchTerm}
+                  onChange={(e) => setPurchaseSearchTerm(e.target.value)}
+                  className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            {/* KPI Cards de Compras */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/30 border border-emerald-200 dark:border-emerald-800/60 rounded-xl p-4">
+                <p className="text-[10px] sm:text-xs text-emerald-800 dark:text-emerald-300 font-bold uppercase tracking-wider flex items-center gap-1">
+                  <span>💰</span> Inversión en Compras
+                </p>
+                <p className="text-xl sm:text-2xl font-extrabold font-mono text-emerald-700 dark:text-emerald-300 mt-1">
+                  ${totalPurchaseSpent.toLocaleString('es-CL')}
+                </p>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  {purchasePeriodFilter === 'this_month' ? 'Gasto del mes actual' : purchasePeriodFilter === 'custom_month' ? `Gasto período ${customMonthValue}` : 'Total según filtros activos'}
+                </p>
+              </div>
+
+              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/30 border border-blue-200 dark:border-blue-800/60 rounded-xl p-4">
+                <p className="text-[10px] sm:text-xs text-blue-800 dark:text-blue-300 font-bold uppercase tracking-wider flex items-center gap-1">
+                  <span>🏗️</span> Proyectos Activos
+                </p>
+                <p className="text-xl sm:text-2xl font-extrabold text-blue-700 dark:text-blue-300 mt-1">
+                  {totalProjectsCount}
+                </p>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  Títulos únicos con compras
+                </p>
+              </div>
+
+              <div className="bg-gradient-to-br from-indigo-50 to-violet-50 dark:from-indigo-950/40 dark:to-violet-950/30 border border-indigo-200 dark:border-indigo-800/60 rounded-xl p-4">
+                <p className="text-[10px] sm:text-xs text-indigo-800 dark:text-indigo-300 font-bold uppercase tracking-wider flex items-center gap-1">
+                  <span>📦</span> Órdenes / Cotizaciones
+                </p>
+                <p className="text-xl sm:text-2xl font-extrabold text-indigo-700 dark:text-indigo-300 mt-1">
+                  {totalOrdersCount}
+                </p>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  Solicitudes generadas
+                </p>
+              </div>
+
+              <div className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/40 dark:to-orange-950/30 border border-amber-200 dark:border-amber-800/60 rounded-xl p-4">
+                <p className="text-[10px] sm:text-xs text-amber-800 dark:text-amber-300 font-bold uppercase tracking-wider flex items-center gap-1">
+                  <span>📈</span> Promedio por Proyecto
+                </p>
+                <p className="text-xl sm:text-2xl font-extrabold font-mono text-amber-700 dark:text-amber-300 mt-1">
+                  ${Math.round(avgPerProject).toLocaleString('es-CL')}
+                </p>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  Inversión media por proyecto
+                </p>
+              </div>
+            </div>
+
+            {/* Listado Consolidado por Proyecto / Título */}
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <h4 className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <span>📋</span> Desglose por Proyecto ({groupedProjects.length} proyectos encontrados)
+                </h4>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Ordenado por mayor gasto acumulado
+                </span>
+              </div>
+
+              {groupedProjects.length === 0 ? (
+                <div className="p-8 text-center bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-400 text-xs sm:text-sm">
+                  No se encontraron cotizaciones o compras que coincidan con los filtros seleccionados.
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {groupedProjects.map((group) => {
+                    const isExpanded = Boolean(expandedProjects[group.title])
+                    const percentOfTotal = totalPurchaseSpent > 0 ? (group.totalSpent / totalPurchaseSpent) * 100 : 0
+
+                    return (
+                      <div
+                        key={group.title}
+                        className="bg-slate-50/70 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60 rounded-xl p-3.5 sm:p-4 transition hover:border-slate-300 dark:hover:border-slate-600"
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white flex items-center gap-1.5">
+                                <span>🏗️</span> {group.title}
+                              </span>
+                              {group.purchasesCount > 1 ? (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 dark:bg-indigo-950/80 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                  {group.purchasesCount} compras acumuladas
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                                  1 compra
+                                </span>
+                              )}
+                            </div>
+                            {group.projectNames.size > 0 && (
+                              <p className="text-xs text-slate-500 dark:text-slate-400">
+                                Destino / Proyecto: <span className="font-semibold text-slate-700 dark:text-slate-300">{Array.from(group.projectNames).join(', ')}</span>
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
+                            <div className="text-right">
+                              <span className="text-[10px] text-slate-400 block font-semibold">Gasto Total Acumulado</span>
+                              <span className="font-mono font-extrabold text-base sm:text-lg text-emerald-600 dark:text-emerald-400">
+                                ${group.totalSpent.toLocaleString('es-CL')}
+                              </span>
+                              <span className="text-[10px] text-slate-400 block">
+                                ({percentOfTotal.toFixed(1)}% del total)
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleToggleProjectExpand(group.title)}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 ${
+                                isExpanded
+                                  ? 'bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white'
+                                  : 'bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
+                              }`}
+                            >
+                              <span>{isExpanded ? '▲ Ocultar' : '▼ Ver Compras'}</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Barra de Progreso / Participación */}
+                        <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full mt-3 overflow-hidden">
+                          <div
+                            className="bg-emerald-500 h-full rounded-full transition-all duration-500"
+                            style={{ width: `${Math.min(100, Math.max(2, percentOfTotal))}%` }}
+                          />
+                        </div>
+
+                        {/* Desglose de Compras individuales si está expandido */}
+                        {isExpanded && (
+                          <div className="mt-3.5 pt-3.5 border-t border-slate-200 dark:border-slate-700 space-y-2">
+                            <p className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
+                              📦 Compras individuales asociadas a este proyecto:
+                            </p>
+                            <div className="grid grid-cols-1 gap-2">
+                              {group.purchases.map((q) => (
+                                <div
+                                  key={q.id}
+                                  className="bg-white dark:bg-slate-900 p-2.5 sm:p-3 rounded-lg border border-slate-200 dark:border-slate-700/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                                >
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="font-mono font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
+                                      {q.customCode ? `${q.code} (${q.customCode})` : q.code}
+                                    </span>
+                                    {getPurchaseStatusBadge(q.status)}
+                                    <span className="text-slate-500 dark:text-slate-400">
+                                      📅 {new Date(q.createdAt).toLocaleDateString('es-CL')}
+                                    </span>
+                                    {q.requestedBy?.name && (
+                                      <span className="text-slate-500 dark:text-slate-400">
+                                        👤 Solicitado por: <strong className="text-slate-700 dark:text-slate-300">{q.requestedBy.name}</strong>
+                                      </span>
+                                    )}
+                                    {q.invoiceNumber && (
+                                      <span className="text-slate-500 dark:text-slate-400">
+                                        📄 Factura: <strong className="font-mono text-emerald-600">{q.invoiceNumber}</strong>
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="flex items-center justify-between sm:justify-end gap-3 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800">
+                                    <div className="text-right">
+                                      <span className="font-mono font-bold text-xs sm:text-sm text-emerald-600 dark:text-emerald-400">
+                                        ${(q.totalEstimatedCost || 0).toLocaleString('es-CL')}
+                                      </span>
+                                    </div>
+                                    <Link
+                                      href="/cotizaciones"
+                                      className="px-2 py-1 text-[11px] font-bold text-blue-600 hover:text-blue-800 dark:text-blue-400 hover:underline flex items-center gap-0.5"
+                                    >
+                                      <span>Ver flujo</span> <span>→</span>
+                                    </Link>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>

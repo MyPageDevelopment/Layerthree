@@ -112,6 +112,7 @@ export default function CotizacionesPage() {
   const [newNotes, setNewNotes] = useState('')
   const [newAttachmentUrl, setNewAttachmentUrl] = useState('')
   const [newAttachmentName, setNewAttachmentName] = useState('')
+  const [newTotalCost, setNewTotalCost] = useState<number | ''>('')
   const [newItems, setNewItems] = useState<QuotationItem[]>([
     { productName: '', quantity: 1, unitMeasure: 'UN', linkUrl: '', itemNotes: '', serialNumber: '' },
   ])
@@ -122,6 +123,7 @@ export default function CotizacionesPage() {
   const [editTitle, setEditTitle] = useState('')
   const [editCustomCode, setEditCustomCode] = useState('')
   const [editProjectName, setEditProjectName] = useState('')
+  const [editTotalCost, setEditTotalCost] = useState<number | ''>('')
   const [editNotes, setEditNotes] = useState('')
   const [editItems, setEditItems] = useState<QuotationItem[]>([])
 
@@ -209,6 +211,7 @@ export default function CotizacionesPage() {
     setEditTitle(q.title)
     setEditCustomCode(q.customCode || '')
     setEditProjectName(q.projectName || '')
+    setEditTotalCost(q.totalEstimatedCost ?? 0)
     setEditNotes(q.notes || '')
     setEditItems(
       q.items.map((i) => ({
@@ -250,6 +253,7 @@ export default function CotizacionesPage() {
         projectName: editProjectName,
         notes: editNotes,
         items: editItems,
+        totalEstimatedCost: editTotalCost !== '' ? Number(editTotalCost) : 0,
       })
       showToast('Cotización actualizada correctamente', 'success', 'Éxito')
       setShowEditModal(false)
@@ -358,6 +362,7 @@ export default function CotizacionesPage() {
         attachmentUrl: newAttachmentUrl || undefined,
         attachmentName: newAttachmentName || undefined,
         items: validItems,
+        totalEstimatedCost: newTotalCost !== '' ? Number(newTotalCost) : undefined,
       })
 
       showToast(`Flujo de compra "${newTitle}" iniciado exitosamente`, 'success', 'Flujo Creado')
@@ -365,6 +370,7 @@ export default function CotizacionesPage() {
       setCustomCode('')
       setNewTitle('')
       setNewProjectName('')
+      setNewTotalCost('')
       setNewNotes('')
       setNewAttachmentUrl('')
       setNewAttachmentName('')
@@ -767,6 +773,14 @@ export default function CotizacionesPage() {
                         📄 Factura N°: <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{q.invoiceNumber}</span>
                       </p>
                     )}
+                    <div className="pt-2 mt-1 border-t border-slate-200/70 dark:border-slate-700/60 flex items-center justify-between">
+                      <span className="text-slate-600 dark:text-slate-400 font-semibold flex items-center gap-1">
+                        <span>💰</span> Valor Compra:
+                      </span>
+                      <span className="font-mono font-extrabold text-xs sm:text-sm text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                        ${(q.totalEstimatedCost || 0).toLocaleString('es-CL')}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -954,6 +968,33 @@ export default function CotizacionesPage() {
                   />
                 </div>
               )}
+
+              {/* Monto / Valor de la Compra */}
+              <div className="bg-emerald-50/60 dark:bg-emerald-950/30 p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-800/60 space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <label className="block font-bold text-xs text-emerald-900 dark:text-emerald-300 flex items-center gap-1.5">
+                    <span>💰</span> Valor / Monto Total de la Compra ($ CLP)
+                  </label>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                    (Editable ahora o posteriormente)
+                  </span>
+                </div>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-slate-400 font-bold">$</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={newTotalCost}
+                    onChange={(e) => setNewTotalCost(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="0 (o según valor de cotización / factura)"
+                    className="w-full pl-7 pr-3 py-2 bg-white dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700 rounded-xl text-slate-900 dark:text-white font-mono font-bold text-sm focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Ingresa el valor total estimado o de compra para este proyecto. También se puede ingresar o ajustar al editar.
+                </p>
+              </div>
 
               {/* Items Section: Permite seleccionar de bodega O ingresar un nuevo producto/material/herramienta (Opcional) */}
               <div className="bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
@@ -1189,9 +1230,14 @@ export default function CotizacionesPage() {
                   </span>
                   {getStatusBadge(selectedQuotation.status)}
                 </div>
-                <h3 className="text-xl font-extrabold text-slate-900 dark:text-white mt-1">
-                  {selectedQuotation.title}
-                </h3>
+                <div className="flex flex-wrap items-center gap-2 mt-1">
+                  <h3 className="text-xl font-extrabold text-slate-900 dark:text-white">
+                    {selectedQuotation.title}
+                  </h3>
+                  <span className="font-mono font-extrabold text-xs sm:text-sm text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/80 px-2.5 py-1 rounded-lg border border-emerald-300 dark:border-emerald-800 flex items-center gap-1">
+                    <span>💰 Total Compra:</span> ${(selectedQuotation.totalEstimatedCost || 0).toLocaleString('es-CL')}
+                  </span>
+                </div>
               </div>
               <button onClick={() => setSelectedQuotation(null)} className="text-slate-400 hover:text-white text-xl">
                 ✕
@@ -1571,6 +1617,43 @@ export default function CotizacionesPage() {
                   placeholder="Ej. Proyecto Red Corporativa"
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl"
                 />
+              </div>
+
+              {/* Monto / Valor de la Compra (Editable en cotizaciones existentes) */}
+              <div className="bg-emerald-50/60 dark:bg-emerald-950/30 p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-800/60 space-y-1.5">
+                <div className="flex flex-wrap justify-between items-center gap-1">
+                  <label className="block font-bold text-xs text-emerald-900 dark:text-emerald-300 flex items-center gap-1.5">
+                    <span>💰</span> Valor / Monto Total de la Compra ($ CLP)
+                  </label>
+                  {editItems.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const sum = editItems.reduce((acc, it) => acc + (it.quantity || 0) * (it.estimatedUnitPrice || 0), 0)
+                        setEditTotalCost(sum)
+                        showToast(`Monto actualizado a suma de ítems: $${sum.toLocaleString('es-CL')}`, 'info')
+                      }}
+                      className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 hover:underline cursor-pointer"
+                    >
+                      ∑ Usar suma de ítems ($ {editItems.reduce((acc, it) => acc + (it.quantity || 0) * (it.estimatedUnitPrice || 0), 0).toLocaleString('es-CL')})
+                    </button>
+                  )}
+                </div>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-slate-400 font-bold">$</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={editTotalCost}
+                    onChange={(e) => setEditTotalCost(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="0"
+                    className="w-full pl-7 pr-3 py-2 bg-white dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700 rounded-xl text-slate-900 dark:text-white font-mono font-bold text-sm focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Define o actualiza el monto total asignado a esta compra o cotización de proyecto.
+                </p>
               </div>
 
               {/* Items List */}

@@ -54,10 +54,12 @@ interface VanEppDelivery {
   vanId: string
   recipientName: string
   deliveryDate: string
-  eppItems: string
+  eppItems?: string
+  eppItemsText?: string
   documentUrl?: string | null
   documentName?: string | null
   notes?: string | null
+  deliveredBy?: string | null
   createdAt?: string
   van?: {
     id: string
@@ -94,7 +96,7 @@ interface Van {
   lastEppDate?: string | Date | null
 }
 
-const COMMON_EPP_OPTIONS = [
+const DEFAULT_EPP_OPTIONS = [
   'Casco Dieléctrico con barbiquejo',
   'Lentes de Seguridad (Claro / Oscuro)',
   'Zapatos de Seguridad Dieléctricos',
@@ -288,6 +290,8 @@ export default function CamionetasPage() {
   const [eppRecipientName, setEppRecipientName] = useState<string>('')
   const [eppDeliveryDate, setEppDeliveryDate] = useState<string>(toDateInputValue(new Date()))
   const [selectedEppItems, setSelectedEppItems] = useState<string[]>([])
+  const [customEppOptions, setCustomEppOptions] = useState<string[]>([])
+  const [newCustomEppInput, setNewCustomEppInput] = useState<string>('')
   const [customEppText, setCustomEppText] = useState<string>('')
   const [eppDocumentUrl, setEppDocumentUrl] = useState<string>('')
   const [eppDocumentName, setEppDocumentName] = useState<string>('')
@@ -299,6 +303,16 @@ export default function CamionetasPage() {
     fetchVans()
     fetchProducts()
     fetchEppDeliveries()
+
+    try {
+      const saved = localStorage.getItem('layerthree_custom_epp_options')
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (Array.isArray(parsed)) setCustomEppOptions(parsed)
+      }
+    } catch (e) {
+      console.error('Error loading custom EPP options:', e)
+    }
   }, [])
 
   const fetchVans = async () => {
@@ -775,6 +789,7 @@ export default function CamionetasPage() {
     setEppRecipientName(currentVan?.driver || '')
     setEppDeliveryDate(toDateInputValue(new Date()))
     setSelectedEppItems([])
+    setNewCustomEppInput('')
     setCustomEppText('')
     setEppDocumentUrl('')
     setEppDocumentName('')
@@ -786,6 +801,42 @@ export default function CamionetasPage() {
     setSelectedEppItems((prev) =>
       prev.includes(item) ? prev.filter((i) => i !== item) : [...prev, item]
     )
+  }
+
+  const handleAddCustomEppOption = (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    const trimmed = newCustomEppInput.trim()
+    if (!trimmed) return
+
+    // Auto-select the item
+    if (!selectedEppItems.includes(trimmed)) {
+      setSelectedEppItems((prev) => [...prev, trimmed])
+    }
+
+    // If it is not in default options and not in custom options, persist it
+    if (!DEFAULT_EPP_OPTIONS.includes(trimmed) && !customEppOptions.includes(trimmed)) {
+      const updated = [...customEppOptions, trimmed]
+      setCustomEppOptions(updated)
+      try {
+        localStorage.setItem('layerthree_custom_epp_options', JSON.stringify(updated))
+      } catch (err) {
+        console.error('Error saving custom EPP option:', err)
+      }
+    }
+
+    setNewCustomEppInput('')
+  }
+
+  const handleRemoveCustomEppOption = (itemToRemove: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    const updated = customEppOptions.filter((item) => item !== itemToRemove)
+    setCustomEppOptions(updated)
+    setSelectedEppItems((prev) => prev.filter((i) => i !== itemToRemove))
+    try {
+      localStorage.setItem('layerthree_custom_epp_options', JSON.stringify(updated))
+    } catch (err) {
+      console.error('Error removing custom EPP option:', err)
+    }
   }
 
   const handleUploadEppDocument = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -826,6 +877,7 @@ export default function CamionetasPage() {
       await api.post(`/vans/${eppVanId}/epp-deliveries`, {
         recipientName: eppRecipientName || 'Trabajador / Cuadrilla',
         deliveryDate: parseDateToNoonIso(eppDeliveryDate) || new Date().toISOString(),
+        eppItemsText: itemsSummary,
         eppItems: itemsSummary,
         documentUrl: eppDocumentUrl || undefined,
         documentName: eppDocumentName || undefined,
@@ -915,7 +967,7 @@ export default function CamionetasPage() {
 
     return (
       epp.recipientName.toLowerCase().includes(query) ||
-      epp.eppItems.toLowerCase().includes(query) ||
+      (epp.eppItemsText || epp.eppItems || '').toLowerCase().includes(query) ||
       (epp.notes && epp.notes.toLowerCase().includes(query)) ||
       (epp.van && (epp.van.plate.toLowerCase().includes(query) || epp.van.name.toLowerCase().includes(query)))
     )
@@ -1574,7 +1626,7 @@ export default function CamionetasPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredFleetEpp.map((epp) => {
                 const vanInfo = epp.van || vans.find((v) => v.id === epp.vanId)
-                const itemsList = (epp.eppItems || '')
+                const itemsList = (epp.eppItemsText || epp.eppItems || '')
                   .split(',')
                   .map((i) => i.trim())
                   .filter(Boolean)
@@ -2778,13 +2830,22 @@ export default function CamionetasPage() {
                 />
               </div>
 
-              {/* Quick Select Common EPP Items */}
-              <div className="space-y-2 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
-                <label className="block font-bold text-slate-700 dark:text-slate-300">
-                  Selecciona los EPP entregados (clic para marcar):
-                </label>
+              {/* Quick Select Common & Custom EPP Items */}
+              <div className="space-y-2.5 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                <div className="flex justify-between items-center">
+                  <label className="block font-bold text-slate-700 dark:text-slate-300">
+                    Selecciona los EPP entregados (clic para marcar):
+                  </label>
+                  {selectedEppItems.length > 0 && (
+                    <span className="text-[11px] font-semibold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/60 px-2 py-0.5 rounded-full border border-purple-200 dark:border-purple-800">
+                      {selectedEppItems.length} seleccionados
+                    </span>
+                  )}
+                </div>
+
                 <div className="flex flex-wrap gap-1.5">
-                  {COMMON_EPP_OPTIONS.map((item) => {
+                  {/* Default Standard EPP Items */}
+                  {DEFAULT_EPP_OPTIONS.map((item) => {
                     const isSelected = selectedEppItems.includes(item)
                     return (
                       <button
@@ -2802,18 +2863,86 @@ export default function CamionetasPage() {
                       </button>
                     )
                   })}
+
+                  {/* Custom EPP Items Added by User */}
+                  {customEppOptions.map((item) => {
+                    const isSelected = selectedEppItems.includes(item)
+                    return (
+                      <div
+                        key={item}
+                        className={`inline-flex items-center rounded-lg text-xs font-semibold transition border ${
+                          isSelected
+                            ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
+                            : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-purple-300 dark:border-purple-700/60 hover:border-purple-500'
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleToggleEppItem(item)}
+                          className="px-2.5 py-1 flex items-center gap-1"
+                        >
+                          <span>{isSelected ? '✓' : '+'}</span>
+                          <span>{item}</span>
+                        </button>
+                        <button
+                          type="button"
+                          title="Eliminar de la lista personalizada"
+                          onClick={(e) => handleRemoveCustomEppOption(item, e)}
+                          className={`px-1.5 py-1 text-[11px] font-bold border-l hover:opacity-100 ${
+                            isSelected
+                              ? 'border-purple-500 hover:bg-purple-700 text-purple-200'
+                              : 'border-slate-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-500'
+                          }`}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )
+                  })}
                 </div>
 
-                <div className="pt-2">
+                {/* Add New Custom EPP Input */}
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-700/60">
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    ➕ Agregar nuevo tipo de EPP a la lista:
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newCustomEppInput}
+                      onChange={(e) => setNewCustomEppInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          handleAddCustomEppOption()
+                        }
+                      }}
+                      placeholder="Ej: Barbiquejo de repuesto, Arnés 4 argollas, Buzo Tyvek, Protector Facial..."
+                      className="flex-1 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleAddCustomEppOption()}
+                      disabled={!newCustomEppInput.trim()}
+                      className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-lg text-xs transition shadow-sm shrink-0 flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <span>+</span>
+                      <span>Agregar a la lista</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Optional Free-text details/sizes */}
+                <div className="pt-1">
                   <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-                    Otros EPP o Tallas Específicas (opcional):
+                    Tallas o especificaciones adicionales (opcional):
                   </label>
                   <input
                     type="text"
                     value={customEppText}
                     onChange={(e) => setCustomEppText(e.target.value)}
                     placeholder="Ej: Calzado Talla 42, Casco Blanco con logo Layerthree..."
-                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none"
+                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none text-xs"
                   />
                 </div>
               </div>

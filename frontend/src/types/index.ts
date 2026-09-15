@@ -96,3 +96,70 @@ export interface AuthResponse {
   access_token: string
   user: User
 }
+
+export interface QuotationItem {
+  id?: string
+  productName: string
+  productId?: string
+  product?: Product
+  quantity: number
+  unitMeasure?: string
+  estimatedUnitPrice?: number
+  supplier?: string
+  itemNotes?: string
+  linkUrl?: string
+  serialNumber?: string
+}
+
+export interface QuotationRequest {
+  id: string
+  code: string
+  customCode?: string
+  destinationType: 'PROYECTO' | 'STOCK_BODEGA'
+  deliveryType?: 'RETIRO_SUCURSAL' | 'DESPACHO_DOMICILIO'
+  projectId?: string
+  projectName?: string
+  requestedById: string
+  requestedBy?: {
+    id: string
+    name?: string
+    email: string
+    role: string
+  }
+  assignedToId?: string
+  assignedTo?: {
+    id: string
+    name?: string
+    email: string
+    role: string
+  }
+  pickupWorkerId?: string
+  pickupWorker?: {
+    id: string
+    name?: string
+    email: string
+    role: string
+  }
+  pickupWorkerName?: string
+  notificationEmail?: string
+  status: 'PENDING_QUOTE' | 'QUOTED' | 'ORDER_PLACED' | 'IN_PROCESSING' | 'READY_FOR_PICKUP' | 'COMPLETED' | 'CANCELLED'
+  title: string
+  notes?: string
+  attachmentUrl?: string
+  attachmentName?: string
+  ocAttachmentUrl?: string
+  ocAttachmentName?: string
+  invoiceAttachmentUrl?: string
+  invoiceAttachmentName?: string
+  documentsJson?: string
+  bodegueroNotes?: string
+  responseAttachmentUrl?: string
+  responseAttachmentName?: string
+  totalEstimatedCost: number
+  supplierRut?: string
+  supplierName?: string
+  invoiceNumber?: string
+  items: QuotationItem[]
+  createdAt: string
+  updatedAt: string
+}

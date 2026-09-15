@@ -30,6 +30,7 @@ export interface CreateQuotationDto {
   attachmentUrl?: string;
   attachmentName?: string;
   items?: CreateQuotationItemDto[];
+  totalEstimatedCost?: number;
 }
 
 export interface EditQuotationItemDto {
@@ -51,6 +52,7 @@ export interface UpdateQuotationFullDto {
   projectName?: string;
   notes?: string;
   items?: EditQuotationItemDto[];
+  totalEstimatedCost?: number;
 }
 
 export interface UpdateQuoteItemDto {
@@ -184,10 +186,13 @@ export class QuotationsService implements OnModuleInit {
     });
 
     const items = dto.items || [];
-    const totalEst = items.reduce(
+    const itemsSum = items.reduce(
       (sum, item) => sum + (item.quantity || 0) * (item.estimatedUnitPrice || 0),
       0,
     );
+    const totalEst = dto.totalEstimatedCost !== undefined && dto.totalEstimatedCost !== null
+      ? Number(dto.totalEstimatedCost)
+      : itemsSum;
 
     const initialDocs = [];
     if (dto.attachmentUrl) {
@@ -717,13 +722,19 @@ export class QuotationsService implements OnModuleInit {
         }
       }
 
-      const updatedItems = await this.prisma.quotationItem.findMany({
-        where: { quotationRequestId: id },
-      });
-      updateData.totalEstimatedCost = updatedItems.reduce(
-        (sum, item) => sum + (item.quantity || 0) * (item.estimatedUnitPrice || 0),
-        0,
-      );
+      if (dto.totalEstimatedCost === undefined || dto.totalEstimatedCost === null) {
+        const updatedItems = await this.prisma.quotationItem.findMany({
+          where: { quotationRequestId: id },
+        });
+        updateData.totalEstimatedCost = updatedItems.reduce(
+          (sum, item) => sum + (item.quantity || 0) * (item.estimatedUnitPrice || 0),
+          0,
+        );
+      }
+    }
+
+    if (dto.totalEstimatedCost !== undefined && dto.totalEstimatedCost !== null) {
+      updateData.totalEstimatedCost = Number(dto.totalEstimatedCost);
     }
 
     return this.prisma.quotationRequest.update({
