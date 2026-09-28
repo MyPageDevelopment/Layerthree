@@ -253,4 +253,67 @@ export class MailService implements OnModuleInit {
     const html = this.wrapTemplate(content, subject);
     return this.sendMail(to, subject, html, plainText);
   }
+
+  async sendWorkerMaterialDeliveryEmail(
+    to: string,
+    code: string,
+    workerName: string,
+    projectName: string,
+    items: { sku?: string; productName: string; quantity: number; unitMeasure?: string; serialNumber?: string }[],
+    vanName?: string,
+    notes?: string,
+    deliveryDocName?: string,
+  ): Promise<boolean> {
+    const subject = `Comprobante de Entrega de Materiales (${code}) - Layerthree`;
+    const itemsTableRows = items
+      .map(
+        (i) => `
+        <tr style="border-bottom: 1px solid #334155;">
+          <td style="padding: 10px; font-family: monospace; color: #94a3b8; font-size: 13px;">${i.sku || 'N/A'}</td>
+          <td style="padding: 10px; font-weight: 600; color: #ffffff;">
+            ${i.productName}
+            ${i.serialNumber ? `<br/><span style="font-size: 11px; color: #38bdf8; font-family: monospace;">N/S: ${i.serialNumber}</span>` : ''}
+          </td>
+          <td style="padding: 10px; text-align: center; color: #10b981; font-weight: 700;">${i.quantity} ${i.unitMeasure || 'UN'}</td>
+        </tr>
+      `,
+      )
+      .join('');
+
+    const content = `
+      <h2 style="color: #ffffff; margin-top: 0;">Certificado de Entrega de Materiales</h2>
+      <p>Estimado/a <strong>${workerName}</strong>,</p>
+      <p>Se ha registrado en el sistema la entrega de los siguientes materiales para el proyecto <strong>${projectName}</strong> (Solicitud <strong>${code}</strong>):</p>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 20px 0; background: #0f172a; border-radius: 8px; overflow: hidden; font-size: 14px;">
+        <thead>
+          <tr style="background: #1e293b; color: #94a3b8; text-align: left;">
+            <th style="padding: 10px;">SKU</th>
+            <th style="padding: 10px;">Material / Equipo</th>
+            <th style="padding: 10px; text-align: center;">Cantidad</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${itemsTableRows}
+        </tbody>
+      </table>
+
+      <div style="background: #0f172a; padding: 16px; border-radius: 8px; margin-bottom: 20px; font-size: 13px; line-height: 1.6;">
+        <p style="margin: 0 0 6px 0;">📁 <strong>Proyecto:</strong> ${projectName}</p>
+        ${vanName ? `<p style="margin: 0 0 6px 0;">🛻 <strong>Camioneta Asignada:</strong> ${vanName}</p>` : ''}
+        ${deliveryDocName ? `<p style="margin: 0 0 6px 0; color: #38bdf8;">📄 <strong>Acta de Entrega:</strong> ${deliveryDocName}</p>` : ''}
+        ${notes ? `<p style="margin: 0;">📝 <strong>Observaciones:</strong> ${notes}</p>` : ''}
+      </div>
+
+      <p style="font-size: 13px; color: #94a3b8;">Este correo certifica la entrega de los materiales indicados. Puedes consultar el detalle en la plataforma Layerthree.</p>
+    `;
+
+    const plainItemsText = items
+      .map((i) => `- [${i.sku || 'N/A'}] ${i.productName}: ${i.quantity} ${i.unitMeasure || 'UN'}${i.serialNumber ? ` (N/S: ${i.serialNumber})` : ''}`)
+      .join('\n');
+    const plainText = `LAYERTHREE - Comprobante de Entrega de Materiales (${code})\n\nEstimado/a ${workerName},\nSe ha registrado la entrega de materiales para el proyecto "${projectName}":\n\n${plainItemsText}\n\n${vanName ? `Camioneta: ${vanName}\n` : ''}${deliveryDocName ? `Acta de Entrega: ${deliveryDocName}\n` : ''}${notes ? `Notas: ${notes}\n` : ''}\nAtentamente,\nBodega Layerthree`;
+
+    const html = this.wrapTemplate(content, subject);
+    return this.sendMail(to, subject, html, plainText);
+  }
 }

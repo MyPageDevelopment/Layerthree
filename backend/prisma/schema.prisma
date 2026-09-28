@@ -637,9 +637,12 @@ model MaterialRequest {
   assignedTo      User?                 @relation("RequestsAssigned", fields: [assignedToId], references: [id])
   status          MaterialRequestStatus @default(PENDING)
   recipientName   String?               @db.VarChar(255)
+  recipientEmail  String?               @db.VarChar(255)
   photoUrl        String?               @db.LongText
   attachmentUrl   String?               @db.LongText
   attachmentName  String?               @db.VarChar(255)
+  deliveryDocUrl  String?               @db.LongText
+  deliveryDocName String?               @db.VarChar(255)
   notes           String?               @db.Text
   vanId           String?
   van             Van?                  @relation(fields: [vanId], references: [id], onDelete: SetNull)

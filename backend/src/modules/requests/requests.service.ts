@@ -34,7 +34,10 @@ export interface DispatchItemDto {
 
 export interface DispatchRequestDto {
   recipientName: string;
+  recipientEmail?: string;
   photoUrl?: string;
+  deliveryDocUrl?: string;
+  deliveryDocName?: string;
   notes?: string;
   vanId?: string;
   items: DispatchItemDto[];
@@ -119,16 +122,19 @@ export class RequestsService implements OnModuleInit {
           OR: [
             { photoUrl: { not: null } },
             { attachmentUrl: { not: null } },
+            { deliveryDocUrl: { not: null } },
           ],
         },
         data: {
           photoUrl: null,
           attachmentUrl: null,
           attachmentName: null,
+          deliveryDocUrl: null,
+          deliveryDocName: null,
         },
       });
       if (result.count > 0) {
-        this.logger.log(`🧹 Política de Retención (30 días): Se han purgado fotos y adjuntos de ${result.count} solicitudes.`);
+        this.logger.log(`🧹 Política de Retención (30 días): Se han purgado fotos y adjuntos/actas de ${result.count} solicitudes.`);
       }
     } catch (error) {
       this.logger.error('Error durante la purga de fotos y adjuntos antiguos:', error);
@@ -286,8 +292,10 @@ export class RequestsService implements OnModuleInit {
       ...r,
       hasPhoto: Boolean(r.photoUrl),
       hasAttachment: Boolean(r.attachmentUrl),
+      hasDeliveryDoc: Boolean(r.deliveryDocUrl),
       photoUrl: r.photoUrl ? (r.photoUrl.length > 200 ? 'HAS_PHOTO' : r.photoUrl) : null,
       attachmentUrl: r.attachmentUrl ? (r.attachmentUrl.length > 200 ? 'HAS_ATTACHMENT' : r.attachmentUrl) : null,
+      deliveryDocUrl: r.deliveryDocUrl ? (r.deliveryDocUrl.length > 200 ? 'HAS_DELIVERY_DOC' : r.deliveryDocUrl) : null,
     }));
   }
 
@@ -466,7 +474,10 @@ export class RequestsService implements OnModuleInit {
         status: 'DISPATCHED',
         assignedToId: bodegueroUserId,
         recipientName: dto.recipientName,
-        photoUrl: dto.photoUrl,
+        recipientEmail: dto.recipientEmail?.trim() || null,
+        photoUrl: dto.photoUrl || null,
+        deliveryDocUrl: dto.deliveryDocUrl || null,
+        deliveryDocName: dto.deliveryDocName || null,
         vanId: dto.vanId || null,
         notes: dto.notes ? `${request.notes || ''}\n[Despacho]: ${dto.notes}` : request.notes,
       },
@@ -506,6 +517,46 @@ export class RequestsService implements OnModuleInit {
           )
           .catch((err) => this.logger.error(`Error enviando correo de despacho a ${u.email}:`, err));
       }
+    }
+
+    // Opcionalmente notificar directamente al trabajador receptor por correo electrónico
+    if (dto.recipientEmail && dto.recipientEmail.trim()) {
+      const workerEmail = dto.recipientEmail.trim();
+      const deliveredItemsSummary = currentItems
+        .filter((i) => {
+          const match = dto.items.find((d) => (d.itemId && d.itemId === i.id) || (d.productId && d.productId === i.productId));
+          return match ? match.isChecked && (match.deliveredQuantity > 0) : i.deliveredQuantity > 0;
+        })
+        .map((i) => {
+          const match = dto.items.find((d) => (d.itemId && d.itemId === i.id) || (d.productId && d.productId === i.productId));
+          return {
+            sku: i.sku || i.product?.sku || undefined,
+            productName: i.productName || i.product?.name || 'Material',
+            quantity: match?.deliveredQuantity ?? i.deliveredQuantity,
+            unitMeasure: i.unitMeasure || i.product?.unit || 'UN',
+            serialNumber: match?.serialNumber || i.serialNumber || undefined,
+          };
+        });
+
+      this.mailService
+        .sendWorkerMaterialDeliveryEmail(
+          workerEmail,
+          request.code,
+          dto.recipientName,
+          request.projectName || 'Proyecto General',
+          deliveredItemsSummary,
+          vanObj ? `${vanObj.plate} (${vanObj.name})` : undefined,
+          dto.notes,
+          dto.deliveryDocName || (dto.deliveryDocUrl ? 'Acta de Entrega Adjunta' : undefined),
+        )
+        .then((ok) => {
+          if (ok) {
+            this.logger.log(`📧 Correo de entrega enviado con éxito al trabajador receptor: ${workerEmail}`);
+          }
+        })
+        .catch((err) => {
+          this.logger.error(`Error al enviar correo de entrega de materiales al trabajador ${workerEmail}:`, err);
+        });
     }
 
     return updatedRequest;

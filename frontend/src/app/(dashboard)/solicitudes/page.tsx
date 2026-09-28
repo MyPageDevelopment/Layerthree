@@ -27,11 +27,15 @@ interface MaterialRequest {
   projectName?: string
   status: 'PENDING' | 'DISPATCHED' | 'REJECTED'
   recipientName?: string
+  recipientEmail?: string
   photoUrl?: string
   attachmentUrl?: string
   attachmentName?: string
+  deliveryDocUrl?: string
+  deliveryDocName?: string
   hasPhoto?: boolean
   hasAttachment?: boolean
+  hasDeliveryDoc?: boolean
   notes?: string
   createdAt: string
   updatedAt: string
@@ -158,7 +162,10 @@ export default function SolicitudesPage() {
   const [showAddProductToDispatch, setShowAddProductToDispatch] = useState(false)
   const [dispatchAddSearch, setDispatchAddSearch] = useState('')
   const [recipientName, setRecipientName] = useState('')
+  const [recipientEmail, setRecipientEmail] = useState('')
   const [dispatchNotes, setDispatchNotes] = useState('')
+  const [deliveryDocUrl, setDeliveryDocUrl] = useState('')
+  const [deliveryDocName, setDeliveryDocName] = useState('')
   const [photoUrl, setPhotoUrl] = useState('')
   const [photoPreview, setPhotoPreview] = useState('')
   const [vans, setVans] = useState<any[]>([])
@@ -534,11 +541,81 @@ export default function SolicitudesPage() {
           const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7)
           setPhotoUrl(compressedBase64)
           setPhotoPreview(compressedBase64)
+          setDeliveryDocUrl(compressedBase64)
+          setDeliveryDocName('foto_comprobante.jpg')
         }
         img.src = event.target?.result as string
       }
       reader.readAsDataURL(file)
     }
+  }
+
+  // Handle Delivery Certificate (PDF or Image)
+  const handleDeliveryDocChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const fileName = file.name
+    const isPdf = file.type === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf')
+    const isImage = file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(fileName)
+
+    if (isPdf) {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const base64 = event.target?.result as string
+        setDeliveryDocUrl(base64)
+        setDeliveryDocName(fileName)
+        setPhotoUrl('')
+        setPhotoPreview('')
+      }
+      reader.readAsDataURL(file)
+      e.target.value = ''
+      return
+    }
+
+    if (isImage) {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const img = new Image()
+        img.onload = () => {
+          const canvas = document.createElement('canvas')
+          let width = img.width
+          let height = img.height
+          const maxDim = 1400
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width)
+              width = maxDim
+            } else {
+              width = Math.round((width * maxDim) / height)
+              height = maxDim
+            }
+          }
+          canvas.width = width
+          canvas.height = height
+          const ctx = canvas.getContext('2d')
+          ctx?.drawImage(img, 0, 0, width, height)
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8)
+          setDeliveryDocUrl(compressedBase64)
+          setDeliveryDocName(fileName)
+          setPhotoUrl(compressedBase64)
+          setPhotoPreview(compressedBase64)
+        }
+        img.src = event.target?.result as string
+      }
+      reader.readAsDataURL(file)
+      e.target.value = ''
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string
+      setDeliveryDocUrl(base64)
+      setDeliveryDocName(fileName)
+    }
+    reader.readAsDataURL(file)
+    e.target.value = ''
   }
 
   const [dispatchError, setDispatchError] = useState('')
@@ -551,7 +628,10 @@ export default function SolicitudesPage() {
     setShowAddProductToDispatch(false)
     setDispatchAddSearch('')
     setRecipientName('')
+    setRecipientEmail('')
     setDispatchNotes('')
+    setDeliveryDocUrl('')
+    setDeliveryDocName('')
     setPhotoUrl('')
     setPhotoPreview('')
     setDispatchError('')
@@ -567,7 +647,7 @@ export default function SolicitudesPage() {
     setItemChecks(initialChecks)
 
     // Si la solicitud tiene adjunto o foto truncada, cargar en segundo plano la data completa
-    if (req.attachmentUrl === 'HAS_ATTACHMENT' || req.photoUrl === 'HAS_PHOTO' || (!req.attachmentUrl && req.hasAttachment)) {
+    if (req.attachmentUrl === 'HAS_ATTACHMENT' || req.photoUrl === 'HAS_PHOTO' || req.deliveryDocUrl === 'HAS_DELIVERY_DOC' || (!req.attachmentUrl && req.hasAttachment)) {
       try {
         const res = await api.get<MaterialRequest>(`/requests/${req.id}`)
         if (res.data) {
@@ -641,7 +721,10 @@ export default function SolicitudesPage() {
     try {
       await api.patch(`/requests/${dispatchRequest.id}/dispatch`, {
         recipientName,
-        photoUrl,
+        recipientEmail: recipientEmail.trim() || undefined,
+        photoUrl: photoUrl || (deliveryDocUrl.startsWith('data:image/') ? deliveryDocUrl : undefined),
+        deliveryDocUrl: deliveryDocUrl || undefined,
+        deliveryDocName: deliveryDocName || undefined,
         vanId: selectedVanId || undefined,
         notes: dispatchNotes,
         items: itemsPayload,
@@ -864,12 +947,21 @@ export default function SolicitudesPage() {
   }, [filteredRequests, tablePage])
 
   const handleOpenPhotoViewer = async (r: MaterialRequest) => {
-    if (!r.photoUrl || r.photoUrl === 'HAS_PHOTO') {
+    const isTruncated =
+      r.deliveryDocUrl === 'HAS_DELIVERY_DOC' ||
+      r.photoUrl === 'HAS_PHOTO' ||
+      (!r.deliveryDocUrl && !r.photoUrl && (r.hasDeliveryDoc || r.hasPhoto))
+
+    if (isTruncated) {
       try {
+        setActionLoadingText('Cargando acta y comprobante de entrega...')
+        setIsActionLoading(true)
         const res = await api.get<MaterialRequest>(`/requests/${r.id}`)
         setViewPhotoRequest(res.data)
       } catch {
         setViewPhotoRequest(r)
+      } finally {
+        setIsActionLoading(false)
       }
     } else {
       setViewPhotoRequest(r)
@@ -1129,6 +1221,12 @@ export default function SolicitudesPage() {
                             <span className="text-slate-500">Receptor:</span>
                             <span className="font-bold text-slate-800 dark:text-slate-200">👤 {r.recipientName}</span>
                           </div>
+                          {r.recipientEmail && (
+                            <div className="flex justify-between items-center text-[11px] text-blue-600 dark:text-blue-400">
+                              <span>Correo:</span>
+                              <span className="font-mono truncate max-w-[170px]" title={r.recipientEmail}>✉️ {r.recipientEmail}</span>
+                            </div>
+                          )}
                           {r.van && (
                             <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400 font-semibold text-[11px]">
                               <span>Camioneta:</span>
@@ -1284,16 +1382,16 @@ export default function SolicitudesPage() {
 
                     {canDispatch && r.status === 'DISPATCHED' && (
                       <div className="grid grid-cols-2 gap-2">
-                        {r.photoUrl ? (
+                        {r.deliveryDocUrl || r.photoUrl || r.hasDeliveryDoc || r.hasPhoto ? (
                           <button
                             onClick={() => handleOpenPhotoViewer(r)}
-                            className="py-2 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow transition active:scale-95 flex items-center justify-center gap-1.5"
+                            className="py-2 px-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold shadow transition active:scale-95 flex items-center justify-center gap-1.5"
                           >
-                            <span>📷</span> Ver Foto
+                            <span>{r.deliveryDocName?.toLowerCase().endsWith('.pdf') ? '📄' : '📜'}</span> Ver Acta
                           </button>
                         ) : (
                           <span className="py-2 px-3 bg-slate-100 dark:bg-slate-800 text-slate-400 rounded-xl text-xs font-semibold text-center flex items-center justify-center">
-                            Sin Foto
+                            Sin Acta
                           </span>
                         )}
                         <button
@@ -1315,12 +1413,12 @@ export default function SolicitudesPage() {
                         </button>
                       )}
 
-                      {!canDispatch && r.status === 'DISPATCHED' && r.photoUrl && (
+                      {!canDispatch && r.status === 'DISPATCHED' && (r.deliveryDocUrl || r.photoUrl || r.hasDeliveryDoc || r.hasPhoto) && (
                         <button
                           onClick={() => handleOpenPhotoViewer(r)}
-                          className="flex-1 py-1.5 px-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold shadow transition text-center"
+                          className="flex-1 py-1.5 px-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-lg text-xs font-bold shadow transition text-center flex items-center justify-center gap-1.5"
                         >
-                          📷 Ver Foto Entrega
+                          <span>{r.deliveryDocName?.toLowerCase().endsWith('.pdf') ? '📄' : '📜'}</span> Ver Acta de Entrega
                         </button>
                       )}
 
@@ -1491,6 +1589,9 @@ export default function SolicitudesPage() {
                           {r.recipientName ? (
                             <div>
                               <span>👤 {r.recipientName}</span>
+                              {r.recipientEmail && (
+                                <div className="text-[11px] text-blue-500 font-mono">✉️ {r.recipientEmail}</div>
+                              )}
                               {r.van && <div className="text-[10px] text-emerald-600">🛻 {r.van.plate}</div>}
                             </div>
                           ) : (
@@ -1539,12 +1640,12 @@ export default function SolicitudesPage() {
                               🗑️ Eliminar
                             </button>
                           )}
-                          {r.status === 'DISPATCHED' && r.photoUrl && (
+                          {r.status === 'DISPATCHED' && (r.deliveryDocUrl || r.photoUrl || r.hasDeliveryDoc || r.hasPhoto) && (
                             <button
                               onClick={() => handleOpenPhotoViewer(r)}
-                              className="w-full px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow"
+                              className="w-full px-3 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-lg text-xs font-semibold shadow flex items-center justify-center gap-1"
                             >
-                              📷 Ver Foto
+                              <span>{r.deliveryDocName?.toLowerCase().endsWith('.pdf') ? '📄' : '📜'}</span> Ver Acta
                             </button>
                           )}
                         </td>
@@ -2087,7 +2188,20 @@ export default function SolicitudesPage() {
                   required
                   list="technicians-list"
                   value={recipientName}
-                  onChange={(e) => setRecipientName(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setRecipientName(val)
+                    // Auto-sugerir correo si coincide con un usuario registrado y aún no hay correo
+                    const matchedUser = systemUsers.find(
+                      (u) =>
+                        `${u.name || u.email}${u.role ? ` (${u.role})` : ''}`.toLowerCase() === val.toLowerCase() ||
+                        (u.name && u.name.toLowerCase() === val.toLowerCase()) ||
+                        (u.email && u.email.toLowerCase() === val.toLowerCase())
+                    )
+                    if (matchedUser && matchedUser.email && !recipientEmail) {
+                      setRecipientEmail(matchedUser.email)
+                    }
+                  }}
                   placeholder="Ej: Juan Pérez - Técnico Receptor"
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs"
                 />
@@ -2099,6 +2213,25 @@ export default function SolicitudesPage() {
                     <option key={v.id} value={`${v.driver} (Conductor ${v.plate})`} />
                   ))}
                 </datalist>
+              </div>
+
+              <div>
+                <label className="block font-semibold mb-1 flex justify-between items-center">
+                  <span className="flex items-center gap-1.5">
+                    <span>📧</span> Correo del Trabajador Receptor <span className="text-slate-400 font-normal text-[11px]">(Opcional)</span>
+                  </span>
+                  <span className="text-[10px] text-blue-500 font-medium">Notificación automática de materiales</span>
+                </label>
+                <input
+                  type="email"
+                  value={recipientEmail}
+                  onChange={(e) => setRecipientEmail(e.target.value)}
+                  placeholder="ej: juan.perez@layerthree.cl"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs font-mono"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Opcional: Si indicas su correo, el trabajador recibirá una notificación por email con la lista detallada de los materiales entregados.
+                </p>
               </div>
 
               <div>
@@ -2128,41 +2261,77 @@ export default function SolicitudesPage() {
                 </select>
               </div>
 
-              {/* Photo Upload Options for Bodeguero */}
-              <div>
-                <label className="block font-semibold mb-1">
-                  📷 Fotografía de Comprobante de Entrega <span className="text-slate-400 font-normal">(Opcional)</span>
-                </label>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-                  <label className="flex items-center justify-center gap-2 p-3 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 rounded-xl cursor-pointer text-xs font-semibold transition text-center">
-                    <span>📸 Sacar Foto con Cámara</span>
+              {/* Sección de Acta de Entrega / Certificado (PDF o Imagen - Opcional) */}
+              <div className="p-3.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-2xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="block font-semibold text-xs text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <span>📜</span> Acta de Entrega / Certificado de Recepción <span className="text-slate-400 font-normal text-[11px]">(Opcional)</span>
+                  </label>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-semibold border border-blue-200 dark:border-blue-800">
+                    PDF o Imagen
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Adjunta el acta firmada en formato PDF o una imagen/foto para certificar la recepción de los materiales. Es opcional para no alterar solicitudes históricas.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  <label className="flex items-center justify-center gap-2 p-2.5 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 rounded-xl cursor-pointer text-xs font-semibold transition text-center shadow-sm">
+                    <span>📄</span> Cargar Acta (PDF o Imagen)
                     <input
                       type="file"
-                      accept="image/*"
-                      capture="environment"
-                      onChange={handlePhotoFileChange}
+                      accept=".pdf,image/*"
+                      onChange={handleDeliveryDocChange}
                       className="hidden"
                     />
                   </label>
 
-                  <label className="flex items-center justify-center gap-2 p-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-xl cursor-pointer text-xs font-semibold transition text-center">
-                    <span>📁 Elegir de Galería / Archivos</span>
+                  <label className="flex items-center justify-center gap-2 p-2.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 rounded-xl cursor-pointer text-xs font-semibold transition text-center shadow-sm">
+                    <span>📸</span> Sacar Foto con Cámara
                     <input
                       type="file"
                       accept="image/*"
-                      onChange={handlePhotoFileChange}
+                      capture="environment"
+                      onChange={handleDeliveryDocChange}
                       className="hidden"
                     />
                   </label>
                 </div>
 
-                {photoPreview && (
-                  <div className="mt-3 relative rounded-xl overflow-hidden border border-emerald-500/50 max-h-48 flex justify-center bg-black">
-                    <img src={photoPreview} alt="Comprobante entrega" className="max-h-48 object-contain" />
-                    <span className="absolute top-2 right-2 bg-emerald-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                      ✓ Foto Lista
-                    </span>
+                {deliveryDocUrl && (
+                  <div className="p-3 bg-white dark:bg-slate-900 border border-emerald-500/50 rounded-xl flex items-center justify-between gap-3 shadow-sm">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="text-2xl shrink-0">
+                        {deliveryDocName?.toLowerCase().endsWith('.pdf') ? '📄' : '🖼️'}
+                      </span>
+                      <div className="min-w-0">
+                        <span className="font-bold text-xs text-slate-800 dark:text-slate-200 block truncate">
+                          {deliveryDocName || 'Acta de Entrega'}
+                        </span>
+                        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold block">
+                          ✓ Acta cargada y lista para certificar la entrega
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeliveryDocUrl('')
+                        setDeliveryDocName('')
+                        setPhotoUrl('')
+                        setPhotoPreview('')
+                      }}
+                      className="text-xs text-rose-500 hover:text-rose-700 font-bold px-2 py-1 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40 transition shrink-0"
+                      title="Quitar acta adjunta"
+                    >
+                      ✕ Quitar
+                    </button>
+                  </div>
+                )}
+
+                {photoPreview && !deliveryDocName?.toLowerCase().endsWith('.pdf') && (
+                  <div className="mt-2 relative rounded-xl overflow-hidden border border-emerald-500/50 max-h-40 flex justify-center bg-black">
+                    <img src={photoPreview} alt="Comprobante entrega" className="max-h-40 object-contain" />
                   </div>
                 )}
               </div>
@@ -2190,7 +2359,7 @@ export default function SolicitudesPage() {
                   type="submit"
                   className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-semibold shadow"
                 >
-                  Confirmar Entrega, Subir Foto & Descontar Stock
+                  Confirmar Entrega & Descontar Stock
                 </button>
               </div>
             </form>
@@ -2198,14 +2367,14 @@ export default function SolicitudesPage() {
         </div>
       )}
 
-      {/* Modal Visualizador de Foto de Entrega */}
+      {/* Modal Visualizador de Acta y Comprobante de Entrega */}
       {viewPhotoRequest && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] my-auto flex flex-col">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] my-auto flex flex-col">
             <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
               <div>
                 <h3 className="text-lg font-bold flex items-center gap-2">
-                  <span>📷</span> Comprobante de Entrega - {viewPhotoRequest.code}
+                  <span>📜</span> Acta y Certificado de Entrega - {viewPhotoRequest.code}
                 </h3>
                 <p className="text-xs text-slate-400">Proyecto: {viewPhotoRequest.projectName}</p>
               </div>
@@ -2217,43 +2386,143 @@ export default function SolicitudesPage() {
               </button>
             </div>
 
-            <div className="space-y-3">
-              <div className="rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-950 flex justify-center p-2 shadow-inner">
-                <img
-                  src={viewPhotoRequest.photoUrl}
-                  alt={`Comprobante ${viewPhotoRequest.code}`}
-                  className="max-h-80 w-auto object-contain rounded-xl"
-                />
-              </div>
+            <div className="space-y-4 overflow-y-auto pr-1 flex-1">
+              {/* Renderizado de Acta / Documento / Foto */}
+              {(() => {
+                const docUrl = viewPhotoRequest.deliveryDocUrl || viewPhotoRequest.photoUrl
+                const docName = viewPhotoRequest.deliveryDocName || `Acta_Entrega_${viewPhotoRequest.code}`
+                const isPdf =
+                  docUrl?.startsWith('data:application/pdf') ||
+                  docName.toLowerCase().endsWith('.pdf')
 
-              <div className="bg-slate-50 dark:bg-slate-800/60 p-4 rounded-xl space-y-2 text-xs border border-slate-200 dark:border-slate-800">
-                <div className="flex justify-between border-b border-slate-200 dark:border-slate-700 pb-1.5">
-                  <span className="text-slate-400">Persona Responsable Receptor:</span>
-                  <span className="font-bold text-slate-800 dark:text-slate-200">👤 {viewPhotoRequest.recipientName}</span>
+                if (!docUrl) {
+                  return (
+                    <div className="p-6 bg-slate-100 dark:bg-slate-800/60 rounded-xl text-center text-slate-500 dark:text-slate-400 text-xs">
+                      ℹ️ Esta solicitud fue despachada sin acta o foto adjunta (Registro histórico).
+                    </div>
+                  )
+                }
+
+                if (isPdf) {
+                  return (
+                    <div className="space-y-3">
+                      <div className="border border-slate-300 dark:border-slate-700 rounded-2xl overflow-hidden bg-slate-950 flex flex-col items-center justify-center p-6 text-center space-y-3 shadow-inner">
+                        <span className="text-5xl">📄</span>
+                        <div>
+                          <p className="font-bold text-sm text-white">{docName}</p>
+                          <p className="text-xs text-slate-400">Documento PDF certificado de entrega</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => downloadFile(docUrl, docName.endsWith('.pdf') ? docName : `${docName}.pdf`)}
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow flex items-center gap-1.5 transition active:scale-95"
+                          >
+                            <span>📥</span> Descargar Acta PDF
+                          </button>
+                        </div>
+                      </div>
+                      <iframe
+                        src={docUrl}
+                        title="Visor PDF Acta de Entrega"
+                        className="w-full h-80 rounded-xl border border-slate-300 dark:border-slate-700 hidden sm:block"
+                      />
+                    </div>
+                  )
+                }
+
+                return (
+                  <div className="space-y-2">
+                    <div className="rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-950 flex justify-center p-2 shadow-inner">
+                      <img
+                        src={docUrl}
+                        alt={`Acta de entrega ${viewPhotoRequest.code}`}
+                        className="max-h-80 w-auto object-contain rounded-xl cursor-pointer"
+                        onClick={() =>
+                          setZoomedAttachment({
+                            url: docUrl,
+                            title: `Acta de Entrega ${viewPhotoRequest.code} - ${docName}`,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => downloadFile(docUrl, docName.includes('.') ? docName : `${docName}.jpg`)}
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1"
+                      >
+                        <span>📥</span> Descargar Imagen
+                      </button>
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {/* Delivery Metadata Card */}
+              <div className="bg-slate-50 dark:bg-slate-800/60 p-4 rounded-xl space-y-2.5 text-xs border border-slate-200 dark:border-slate-800">
+                <div className="flex justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
+                  <span className="text-slate-400">Responsable / Técnico Receptor:</span>
+                  <div className="text-right">
+                    <span className="font-bold text-slate-800 dark:text-slate-200 block">👤 {viewPhotoRequest.recipientName}</span>
+                    {viewPhotoRequest.recipientEmail && (
+                      <span className="text-[11px] text-blue-500 font-mono block">✉️ {viewPhotoRequest.recipientEmail}</span>
+                    )}
+                  </div>
                 </div>
-                <div className="flex justify-between border-b border-slate-200 dark:border-slate-700 pb-1.5">
-                  <span className="text-slate-400">Solicitado Por:</span>
-                  <span className="font-semibold">{viewPhotoRequest.requestedBy?.name} ({viewPhotoRequest.requestedBy?.email})</span>
+
+                <div className="flex justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
+                  <span className="text-slate-400">Despachado Por:</span>
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">
+                    {viewPhotoRequest.assignedTo?.name || viewPhotoRequest.assignedTo?.email || 'Bodega Layerthree'}
+                  </span>
                 </div>
-                <div className="flex justify-between border-b border-slate-200 dark:border-slate-700 pb-1.5">
-                  <span className="text-slate-400">Fecha Despacho:</span>
+
+                {viewPhotoRequest.van && (
+                  <div className="flex justify-between border-b border-slate-200 dark:border-slate-700 pb-2 text-emerald-600 dark:text-emerald-400">
+                    <span>Camioneta Asignada:</span>
+                    <span className="font-bold font-mono">🛻 {viewPhotoRequest.van.plate} ({viewPhotoRequest.van.name})</span>
+                  </div>
+                )}
+
+                <div className="flex justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
+                  <span className="text-slate-400">Fecha y Hora de Despacho:</span>
                   <span className="font-mono">{new Date(viewPhotoRequest.updatedAt).toLocaleString('es-CL')}</span>
                 </div>
+
                 <div>
-                  <span className="text-slate-400 block mb-1">Ítems Entregados:</span>
-                  <div className="space-y-1 pl-2">
-                    {viewPhotoRequest.items.map(i => (
-                      <p key={i.id} className="font-semibold">• {i.product?.name} (x{i.deliveredQuantity})</p>
+                  <span className="text-slate-400 block mb-1 font-semibold">Ítems y Materiales Entregados:</span>
+                  <div className="space-y-1.5 pl-2 max-h-40 overflow-y-auto">
+                    {viewPhotoRequest.items.map((i) => (
+                      <div key={i.id} className="flex justify-between items-center text-xs py-1 border-b border-slate-200/40 dark:border-slate-700/40">
+                        <div>
+                          <span className="font-semibold">• {i.productName || i.product?.name}</span>
+                          {i.sku && <span className="font-mono text-[10px] text-slate-400 ml-1.5">({i.sku})</span>}
+                          {(i as any).serialNumber && (
+                            <span className="text-[10px] text-blue-400 font-mono block ml-3">N/S: {(i as any).serialNumber}</span>
+                          )}
+                        </div>
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400 shrink-0 ml-2">
+                          {i.deliveredQuantity > 0 ? i.deliveredQuantity : i.requestedQuantity} {i.unitMeasure || 'UN'}
+                        </span>
+                      </div>
                     ))}
                   </div>
                 </div>
+
+                {viewPhotoRequest.notes && (
+                  <div className="pt-1 text-[11px] text-slate-400">
+                    <span className="font-semibold block text-slate-300">Notas de Despacho:</span>
+                    <p className="italic bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-800 whitespace-pre-wrap">{viewPhotoRequest.notes}</p>
+                  </div>
+                )}
               </div>
             </div>
 
-            <div className="flex justify-end pt-2 border-t border-slate-200 dark:border-slate-800">
+            <div className="flex justify-end pt-3 border-t border-slate-200 dark:border-slate-800">
               <button
                 onClick={() => setViewPhotoRequest(null)}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold shadow"
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold shadow transition"
               >
                 Cerrar Visualizador
               </button>
